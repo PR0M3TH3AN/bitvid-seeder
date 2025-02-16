@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Simple Torrent Seeder</title>
+  <title>bitvid Torrent Seeder</title>
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
   <div class="container my-4">
-    <h1 class="mb-4">Torrent Seeder</h1>
+    <h1 class="mb-4">bitvid Torrent Seeder</h1>
     
     <!-- Add Torrent Form -->
     <div class="card mb-4">
@@ -39,6 +39,7 @@
                 <th>Peers</th>
                 <th>Downloaded</th>
                 <th>Uploaded</th>
+                <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -115,8 +116,32 @@
           tdUploaded.textContent = formatBytes(torrent.uploaded);
           tr.appendChild(tdUploaded);
 
+          // Status column
+          const tdStatus = document.createElement('td');
+          tdStatus.textContent = torrent.paused ? 'Paused' : 'Active';
+          tr.appendChild(tdStatus);
+
           // Actions column
           const tdActions = document.createElement('td');
+          // Pause/Resume button
+          const toggleBtn = document.createElement('button');
+          toggleBtn.className = 'btn btn-warning btn-sm me-2';
+          if (torrent.paused) {
+            toggleBtn.textContent = 'Resume';
+            toggleBtn.onclick = async () => {
+              await fetch('/resume/' + torrent.infoHash, { method: 'POST' });
+              fetchTorrents();
+            };
+          } else {
+            toggleBtn.textContent = 'Pause';
+            toggleBtn.onclick = async () => {
+              await fetch('/pause/' + torrent.infoHash, { method: 'POST' });
+              fetchTorrents();
+            };
+          }
+          tdActions.appendChild(toggleBtn);
+
+          // Remove button
           const removeBtn = document.createElement('button');
           removeBtn.textContent = 'Remove';
           removeBtn.className = 'btn btn-danger btn-sm';
@@ -169,7 +194,7 @@
       document.getElementById('currentStorage').textContent = 'Current storage directory: ' + result.storageDir;
     });
 
-    // Refresh the list and config every few seconds
+    // Refresh the list and config every 5 seconds
     setInterval(() => {
       fetchTorrents();
       fetchConfig();

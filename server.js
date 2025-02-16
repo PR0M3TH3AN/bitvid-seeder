@@ -26,7 +26,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const client = new WebTorrent();
 
-// Increase max listeners for the client to avoid warnings (if needed)
+// Increase max listeners for our client (and all EventEmitters)
 client.setMaxListeners(50);
 
 // ES module __dirname workaround
@@ -109,12 +109,10 @@ async function loadSavedTorrents() {
       const exists = await pathExists(torrentPath);
       try {
         if (exists) {
-          // If the file exists, seed it to keep it active.
           client.seed(torrentPath, { name: torrentData.name, keepSeeding: true }, torrent => {
             logger.info(`Seeding torrent from existing files: ${torrent.infoHash}`);
           });
         } else {
-          // Otherwise, add the torrent to download its files.
           client.add(torrentData.magnet, { path: STORAGE_DIR, keepSeeding: true }, torrent => {
             logger.info(`Downloading torrent: ${torrent.infoHash}`);
           });
@@ -153,7 +151,6 @@ app.post('/config', (req, res) => {
 });
 
 // POST /add - Add a new torrent (with basic validation and duplicate check)
-// The keepSeeding option ensures that the torrent remains active.
 app.post('/add', (req, res) => {
   const { magnet } = req.body;
   if (!magnet || typeof magnet !== 'string') {
@@ -185,17 +182,32 @@ app.post('/add', (req, res) => {
   }
 });
 
-// GET /torrents - List active torrents with extra info
+// GET /torrents - List active torrents
 app.get('/torrents', (req, res) => {
   try {
-    const torrents = client.torrents.map(t => ({
+    // Active torrents: those currently in the client.
+    const active = client.torrents.map(t => ({
       infoHash: t.infoHash,
       name: t.name,
       progress: t.progress,
       numPeers: t.numPeers,
-      downloaded: t.downloaded, // in bytes
-      uploaded: t.uploaded      // in bytes
+      downloaded: t.downloaded,
+      uploaded: t.uploaded,
+      paused: false
     }));
+    // Paused torrents: in savedTorrents but not active.
+    const paused = savedTorrents
+      .filter(s => !client.get(s.infoHash))
+      .map(s => ({
+        infoHash: s.infoHash,
+        name: s.name,
+        progress: 1,
+        numPeers: 0,
+        downloaded: 0,
+        uploaded: 0,
+        paused: true
+      }));
+    const torrents = [...active, ...paused];
     logger.info('GET /torrents returning: ' + JSON.stringify(torrents));
     res.json(torrents);
   } catch (err) {
@@ -204,7 +216,53 @@ app.get('/torrents', (req, res) => {
   }
 });
 
-// DELETE /remove/:infoHash - Remove a torrent
+// POST /pause/:infoHash - Pause a torrent by removing it from the active client.
+// We do not remove its saved metadata.
+app.post('/pause/:infoHash', (req, res) => {
+  const infoHash = req.params.infoHash;
+  const torrent = client.get(infoHash);
+  if (!torrent) {
+    return res.status(400).json({ error: 'Torrent not active or already paused' });
+  }
+  // Use client.remove to remove the torrent from active seeding.
+  client.remove(infoHash, { destroyStore: false }, err => {
+    if (err) {
+      logger.error('Error pausing torrent: ' + err);
+      return res.status(500).json({ error: 'Error pausing torrent' });
+    }
+    logger.info(`Torrent paused: ${infoHash}`);
+    res.json({ message: 'Torrent paused' });
+  });
+});
+
+// POST /resume/:infoHash - Resume a paused torrent (re-add it).
+app.post('/resume/:infoHash', async (req, res) => {
+  const infoHash = req.params.infoHash;
+  const savedData = savedTorrents.find(s => s.infoHash === infoHash);
+  if (!savedData) {
+    return res.status(400).json({ error: 'Torrent not found in saved data' });
+  }
+  const torrentPath = path.join(STORAGE_DIR, savedData.name);
+  const exists = await pathExists(torrentPath);
+  try {
+    if (exists) {
+      client.seed(torrentPath, { name: savedData.name, keepSeeding: true }, torrent => {
+        logger.info(`Torrent resumed (seeding from file): ${torrent.infoHash}`);
+        res.json({ message: 'Torrent resumed' });
+      });
+    } else {
+      client.add(savedData.magnet, { path: STORAGE_DIR, keepSeeding: true }, torrent => {
+        logger.info(`Torrent resumed (downloading): ${torrent.infoHash}`);
+        res.json({ message: 'Torrent resumed' });
+      });
+    }
+  } catch (err) {
+    logger.error('Error resuming torrent: ' + err);
+    res.status(500).json({ error: 'Error resuming torrent' });
+  }
+});
+
+// DELETE /remove/:infoHash - Remove a torrent completely.
 app.delete('/remove/:infoHash', (req, res) => {
   const infoHash = req.params.infoHash;
   if (!infoHash || typeof infoHash !== 'string') {
@@ -212,7 +270,6 @@ app.delete('/remove/:infoHash', (req, res) => {
   }
   const torrent = client.get(infoHash);
   const savedData = savedTorrents.find(t => t.infoHash === infoHash);
-  // Use the torrent's name if available; otherwise, use saved metadata.
   const torrentName = (torrent && torrent.name) || (savedData && savedData.name);
   if (!torrentName) {
     return res.status(400).json({ error: 'Torrent name not found' });
