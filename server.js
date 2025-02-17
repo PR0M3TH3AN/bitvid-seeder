@@ -19,7 +19,7 @@ const logger = winston.createLogger({
       ({ timestamp, level, message }) => `${timestamp} ${level}: ${message}`
     )
   ),
-  transports: [new winston.transports.Console()]
+  transports: [new winston.transports.Console()],
 });
 
 const app = express();
@@ -36,7 +36,7 @@ const __dirname = path.dirname(__filename);
 // Rate limiting middleware (100 requests per minute per IP)
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100
+  max: 100,
 });
 app.use(limiter);
 
@@ -103,26 +103,26 @@ async function pathExists(p) {
 app.get('/torrents', (req, res) => {
   try {
     // Active torrents: those in the client
-    const active = client.torrents.map(t => ({
+    const active = client.torrents.map((t) => ({
       infoHash: t.infoHash,
       name: t.name,
       progress: t.progress,
       numPeers: t.numPeers,
       downloaded: t.downloaded,
       uploaded: t.uploaded,
-      paused: false
+      paused: false,
     }));
     // Paused torrents: those saved with paused: true
     const paused = savedTorrents
-      .filter(s => s.paused)
-      .map(s => ({
+      .filter((s) => s.paused)
+      .map((s) => ({
         infoHash: s.infoHash,
         name: s.name,
         progress: 1,
         numPeers: 0,
         downloaded: 0,
         uploaded: 0,
-        paused: true
+        paused: true,
       }));
     const torrents = [...active, ...paused];
     logger.info('GET /torrents returning: ' + JSON.stringify(torrents));
@@ -140,13 +140,13 @@ app.post('/pause/:infoHash', (req, res) => {
   if (!torrent) {
     return res.status(400).json({ error: 'Torrent not active or already paused' });
   }
-  client.remove(infoHash, { destroyStore: false }, err => {
+  client.remove(infoHash, { destroyStore: false }, (err) => {
     if (err) {
       logger.error('Error pausing torrent: ' + err);
       return res.status(500).json({ error: 'Error pausing torrent' });
     }
     // Update savedTorrents to mark this torrent as paused.
-    const entry = savedTorrents.find(s => s.infoHash === infoHash);
+    const entry = savedTorrents.find((s) => s.infoHash === infoHash);
     if (entry) entry.paused = true;
     saveTorrents();
     logger.info(`Torrent paused: ${infoHash}`);
@@ -157,7 +157,7 @@ app.post('/pause/:infoHash', (req, res) => {
 // POST /resume/:infoHash - Resume a paused torrent (re-add it to the client)
 app.post('/resume/:infoHash', async (req, res) => {
   const infoHash = req.params.infoHash;
-  const entry = savedTorrents.find(s => s.infoHash === infoHash);
+  const entry = savedTorrents.find((s) => s.infoHash === infoHash);
   if (!entry) {
     return res.status(400).json({ error: 'Torrent not found in saved data' });
   }
@@ -167,12 +167,12 @@ app.post('/resume/:infoHash', async (req, res) => {
   const exists = await pathExists(torrentPath);
   try {
     if (exists) {
-      client.seed(torrentPath, { name: entry.name, keepSeeding: true }, torrent => {
+      client.seed(torrentPath, { name: entry.name, keepSeeding: true }, (torrent) => {
         logger.info(`Torrent resumed (seeding from file): ${torrent.infoHash}`);
         res.json({ message: 'Torrent resumed' });
       });
     } else {
-      client.add(entry.magnet, { path: STORAGE_DIR, keepSeeding: true }, torrent => {
+      client.add(entry.magnet, { path: STORAGE_DIR, keepSeeding: true }, (torrent) => {
         logger.info(`Torrent resumed (downloading): ${torrent.infoHash}`);
         res.json({ message: 'Torrent resumed' });
       });
@@ -189,18 +189,18 @@ app.post('/resume/:infoHash', async (req, res) => {
 // (Paused torrents will have "paused": true in savedTorrents and should not be added automatically.)
 async function loadSavedTorrents() {
   await Promise.all(
-    savedTorrents.map(async torrentData => {
+    savedTorrents.map(async (torrentData) => {
       // Only auto-load if not marked paused.
       if (torrentData.paused) return;
       const torrentPath = path.join(STORAGE_DIR, torrentData.name);
       const exists = await pathExists(torrentPath);
       try {
         if (exists) {
-          client.seed(torrentPath, { name: torrentData.name, keepSeeding: true }, torrent => {
+          client.seed(torrentPath, { name: torrentData.name, keepSeeding: true }, (torrent) => {
             logger.info(`Seeding torrent from existing files: ${torrent.infoHash}`);
           });
         } else {
-          client.add(torrentData.magnet, { path: STORAGE_DIR, keepSeeding: true }, torrent => {
+          client.add(torrentData.magnet, { path: STORAGE_DIR, keepSeeding: true }, (torrent) => {
             logger.info(`Downloading torrent: ${torrent.infoHash}`);
           });
         }
@@ -211,6 +211,16 @@ async function loadSavedTorrents() {
   );
 }
 loadSavedTorrents();
+
+// GET /config - Return the current configuration
+app.get('/config', (req, res) => {
+  try {
+    res.json({ storageDir: STORAGE_DIR });
+  } catch (err) {
+    logger.error('Error fetching config: ' + err);
+    res.status(500).json({ error: 'Error fetching config' });
+  }
+});
 
 // POST /config - Update storage directory (with input validation)
 app.post('/config', (req, res) => {
@@ -241,18 +251,18 @@ app.post('/add', (req, res) => {
   if (!magnet.startsWith('magnet:?')) {
     return res.status(400).json({ error: 'Invalid magnet link format' });
   }
-  if (savedTorrents.some(t => t.magnet === magnet)) {
+  if (savedTorrents.some((t) => t.magnet === magnet)) {
     logger.info('Attempted to add duplicate torrent.');
     return res.status(409).json({ error: 'Torrent already added.' });
   }
   try {
-    client.add(magnet, { path: STORAGE_DIR, keepSeeding: true }, torrent => {
+    client.add(magnet, { path: STORAGE_DIR, keepSeeding: true }, (torrent) => {
       logger.info(`Torrent added: ${torrent.infoHash}`);
       const torrentData = {
         magnet,
         infoHash: torrent.infoHash,
         name: torrent.name,
-        paused: false
+        paused: false,
       };
       savedTorrents.push(torrentData);
       saveTorrents();
@@ -271,18 +281,18 @@ app.delete('/remove/:infoHash', (req, res) => {
     return res.status(400).json({ error: 'Invalid infoHash' });
   }
   const torrent = client.get(infoHash);
-  const savedData = savedTorrents.find(t => t.infoHash === infoHash);
+  const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
   const torrentName = (torrent && torrent.name) || (savedData && savedData.name);
   if (!torrentName) {
     return res.status(400).json({ error: 'Torrent name not found' });
   }
   try {
-    client.remove(infoHash, { destroyStore: true }, async err => {
+    client.remove(infoHash, { destroyStore: true }, async (err) => {
       if (err) {
         logger.error('Error removing torrent: ' + err);
         return res.status(500).json({ error: 'Error removing torrent' });
       }
-      savedTorrents = savedTorrents.filter(t => t.infoHash !== infoHash);
+      savedTorrents = savedTorrents.filter((t) => t.infoHash !== infoHash);
       saveTorrents();
       const torrentPath = path.join(STORAGE_DIR, torrentName);
       if (await pathExists(torrentPath)) {
@@ -311,7 +321,7 @@ function shutdown() {
   logger.info('Shutting down server...');
   server.close(() => {
     logger.info('HTTP server closed.');
-    client.destroy(err => {
+    client.destroy((err) => {
       if (err) {
         logger.error('Error destroying WebTorrent client: ' + err);
       } else {
