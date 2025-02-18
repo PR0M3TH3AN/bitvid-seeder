@@ -5,24 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>bitvid Torrent Seeder</title>
   <!-- Bootstrap CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <!-- Font Awesome for the gear icon -->
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet" />
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+  <!-- Font Awesome (for gear icon, etc.) -->
+  <link
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    rel="stylesheet"
+  />
 </head>
 <body>
   <div class="container my-4">
     <h1 class="mb-4">bitvid Torrent Seeder</h1>
-    
+
+    <!-- 
+      Circular Login Button / Profile Button.
+      If user is not logged in, it shows a default avatar. 
+      Clicking it either triggers login or opens profile modal.
+    -->
+    <div class="d-flex justify-content-end mb-4">
+      <button
+        id="loginButton"
+        class="btn p-0 rounded-circle me-3"
+        style="
+          width: 48px;
+          height: 48px;
+          background-color: #1e293b;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <img
+          id="loginButtonAvatar"
+          src="assets/svg/default-profile.svg"
+          alt="Profile Icon"
+          style="width: 40px; height: 40px; border-radius: 50%;"
+        />
+      </button>
+    </div>
+
     <!-- Add Torrent Form -->
     <div class="card mb-4">
       <div class="card-header">Add New Torrent</div>
       <div class="card-body">
         <form id="addTorrentForm" class="row g-3">
           <div class="col-md-9">
-            <input type="text" id="magnet" class="form-control" placeholder="Enter magnet link" required>
+            <input
+              type="text"
+              id="magnet"
+              class="form-control"
+              placeholder="Enter magnet link"
+              required
+            />
           </div>
           <div class="col-md-3">
-            <button type="submit" class="btn btn-primary w-100">Add Torrent</button>
+            <button type="submit" class="btn btn-primary w-100">
+              Add Torrent
+            </button>
           </div>
         </form>
       </div>
@@ -30,10 +71,16 @@
 
     <!-- Active Torrents Table -->
     <div class="card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
+      <div
+        class="card-header d-flex justify-content-between align-items-center"
+      >
         Active Torrents
         <!-- Settings Gear Icon -->
-        <button class="btn btn-link" data-bs-toggle="modal" data-bs-target="#settingsModal">
+        <button
+          class="btn btn-link"
+          data-bs-toggle="modal"
+          data-bs-target="#settingsModal"
+        >
           <i class="fas fa-cog"></i>
         </button>
       </div>
@@ -61,21 +108,40 @@
   </div>
 
   <!-- Settings Modal -->
-  <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+  <div
+    class="modal fade"
+    id="settingsModal"
+    tabindex="-1"
+    aria-labelledby="settingsModalLabel"
+    aria-hidden="true"
+  >
     <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+            aria-label="Close"
+          ></button>
         </div>
         <div class="modal-body">
           <!-- Storage Settings Form -->
           <form id="configForm">
             <div class="mb-3">
               <label for="storageDir" class="form-label">Storage Directory</label>
-              <input type="text" id="storageDir" class="form-control" placeholder="Storage directory" required>
+              <input
+                type="text"
+                id="storageDir"
+                class="form-control"
+                placeholder="Storage directory"
+                required
+              />
             </div>
-            <button type="submit" class="btn btn-primary">Update Storage Directory</button>
+            <button type="submit" class="btn btn-primary">
+              Update Storage Directory
+            </button>
           </form>
           <p id="currentStorage" class="mt-3"></p>
         </div>
@@ -83,144 +149,301 @@
     </div>
   </div>
 
+  <!-- Profile Modal Container (will be loaded from external HTML) -->
+  <div id="profileModalContainer"></div>
+
   <!-- Helper to format bytes -->
   <script>
     function formatBytes(bytes) {
       if (bytes === 0) return '0 B';
       const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+      return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
     }
   </script>
 
-  <!-- JavaScript for UI -->
+  <!-- Main UI Script -->
   <script>
-    async function fetchTorrents() {
+    // -----------------------------------------
+    // Load the profile modal from external file
+    // -----------------------------------------
+    async function loadProfileModal() {
       try {
-        const res = await fetch('/torrents');
+        const response = await fetch("components/profile-modal.html");
+        const html = await response.text();
+        document.getElementById("profileModalContainer").innerHTML = html;
+
+        // Once loaded, set up close and logout event listeners
+        const closeBtn = document.getElementById("closeProfileModal");
+        const logoutBtn = document.getElementById("profileLogoutBtn");
+
+        if (closeBtn) {
+          closeBtn.addEventListener("click", () => {
+            toggleProfileModal(false);
+          });
+        }
+        if (logoutBtn) {
+          logoutBtn.addEventListener("click", () => {
+            logout();
+            toggleProfileModal(false);
+          });
+        }
+      } catch (err) {
+        console.error("Error loading profile modal:", err);
+      }
+    }
+
+    // Show or hide the profile modal
+    function toggleProfileModal(show) {
+      const modal = document.getElementById("profileModal");
+      if (!modal) return;
+      if (show) {
+        modal.classList.remove("d-none");
+      } else {
+        modal.classList.add("d-none");
+      }
+    }
+
+    // -----------------------------------------
+    // Nostr login logic
+    // -----------------------------------------
+    const nostrClient = {
+      login: async () => {
+        if (!window.nostr) {
+          throw new Error(
+            "Nostr extension not found. Please install a Nostr extension."
+          );
+        }
+        const pubkey = await window.nostr.getPublicKey();
+        return pubkey;
+      },
+      logout: () => {
+        localStorage.removeItem("userPubKey");
+      },
+    };
+
+    // Attempt login
+    async function login() {
+      try {
+        const pubkey = await nostrClient.login();
+        if (pubkey) {
+          localStorage.setItem("userPubKey", pubkey);
+          updateProfileUI(pubkey);
+        }
+      } catch (error) {
+        console.error("Login failed:", error);
+        alert("Login failed. Please try again.");
+      }
+    }
+
+    // Logout
+    function logout() {
+      nostrClient.logout();
+      updateProfileUI(null);
+    }
+
+    // -----------------------------------------
+    // UI updates for the login button/avatar
+    // -----------------------------------------
+    function updateProfileUI(pubkey) {
+      const btn = document.getElementById("loginButton");
+      const btnAvatar = document.getElementById("loginButtonAvatar");
+
+      if (!pubkey) {
+        // Not logged in
+        btnAvatar.src = "assets/svg/default-profile.svg";
+      } else {
+        // Logged in. If you have an avatar from pubkey, update it here.
+        // For now, we just show a default with no direct pubkey-based avatar.
+        btnAvatar.src = "assets/svg/default-profile.svg";
+      }
+    }
+
+    // When login button is clicked
+    document.getElementById("loginButton").addEventListener("click", () => {
+      const userPubKey = localStorage.getItem("userPubKey");
+      if (!userPubKey) {
+        // Not logged in, so log in
+        login().then(() => {
+          // After login, open the modal
+          toggleProfileModal(true);
+        });
+      } else {
+        // Already logged in, just show the profile modal
+        toggleProfileModal(true);
+      }
+    });
+
+    // On page load, check if user is logged in
+    const savedPubKey = localStorage.getItem("userPubKey") || null;
+    if (savedPubKey) {
+      updateProfileUI(savedPubKey);
+    }
+
+    // -----------------------------------------
+    // Add torrent form
+    // -----------------------------------------
+    document
+      .getElementById("addTorrentForm")
+      .addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!localStorage.getItem("userPubKey")) {
+          alert("Please login to add a torrent.");
+          return;
+        }
+        const magnet = document.getElementById("magnet").value;
+        await fetch("/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ magnet }),
+        });
+        document.getElementById("magnet").value = "";
+        fetchTorrents();
+      });
+
+    // -----------------------------------------
+    // Fetching torrents
+    // -----------------------------------------
+    async function fetchTorrents() {
+      if (!localStorage.getItem("userPubKey")) {
+        // Don't block the entire page, just skip fetching.
+        return;
+      }
+      try {
+        const res = await fetch("/torrents");
         const torrents = await res.json();
-        const list = document.getElementById('torrentList');
-        list.innerHTML = '';
+        const list = document.getElementById("torrentList");
+        list.innerHTML = "";
 
-        torrents.forEach(torrent => {
-          const tr = document.createElement('tr');
+        torrents.forEach((torrent) => {
+          const tr = document.createElement("tr");
 
-          // Name column
-          const tdName = document.createElement('td');
+          // Name
+          const tdName = document.createElement("td");
           tdName.textContent = torrent.name;
           tr.appendChild(tdName);
 
-          // Progress column
-          const tdProgress = document.createElement('td');
-          tdProgress.textContent = (torrent.progress * 100).toFixed(2) + '%';
+          // Progress
+          const tdProgress = document.createElement("td");
+          tdProgress.textContent = (torrent.progress * 100).toFixed(2) + "%";
           tr.appendChild(tdProgress);
 
-          // Peers column
-          const tdPeers = document.createElement('td');
+          // Peers
+          const tdPeers = document.createElement("td");
           tdPeers.textContent = torrent.numPeers;
           tr.appendChild(tdPeers);
 
-          // Downloaded column
-          const tdDownloaded = document.createElement('td');
+          // Downloaded
+          const tdDownloaded = document.createElement("td");
           tdDownloaded.textContent = formatBytes(torrent.downloaded);
           tr.appendChild(tdDownloaded);
 
-          // Uploaded column
-          const tdUploaded = document.createElement('td');
+          // Uploaded
+          const tdUploaded = document.createElement("td");
           tdUploaded.textContent = formatBytes(torrent.uploaded);
           tr.appendChild(tdUploaded);
 
-          // Status column
-          const tdStatus = document.createElement('td');
-          tdStatus.textContent = torrent.paused ? 'Paused' : 'Active';
+          // Status
+          const tdStatus = document.createElement("td");
+          tdStatus.textContent = torrent.paused ? "Paused" : "Active";
           tr.appendChild(tdStatus);
 
-          // Actions column
-          const tdActions = document.createElement('td');
-          // Pause/Resume button
-          const toggleBtn = document.createElement('button');
-          toggleBtn.className = 'btn btn-warning btn-sm me-2';
+          // Actions
+          const tdActions = document.createElement("td");
+          const toggleBtn = document.createElement("button");
+          toggleBtn.className = "btn btn-warning btn-sm me-2";
+
           if (torrent.paused) {
-            toggleBtn.textContent = 'Resume';
+            toggleBtn.textContent = "Resume";
             toggleBtn.onclick = async () => {
-              await fetch('/resume/' + torrent.infoHash, { method: 'POST' });
+              await fetch("/resume/" + torrent.infoHash, { method: "POST" });
               fetchTorrents();
             };
           } else {
-            toggleBtn.textContent = 'Pause';
+            toggleBtn.textContent = "Pause";
             toggleBtn.onclick = async () => {
-              await fetch('/pause/' + torrent.infoHash, { method: 'POST' });
+              await fetch("/pause/" + torrent.infoHash, { method: "POST" });
               fetchTorrents();
             };
           }
           tdActions.appendChild(toggleBtn);
 
           // Remove button
-          const removeBtn = document.createElement('button');
-          removeBtn.textContent = 'Remove';
-          removeBtn.className = 'btn btn-danger btn-sm';
+          const removeBtn = document.createElement("button");
+          removeBtn.textContent = "Remove";
+          removeBtn.className = "btn btn-danger btn-sm";
           removeBtn.onclick = async () => {
-            await fetch('/remove/' + torrent.infoHash, { method: 'DELETE' });
+            await fetch("/remove/" + torrent.infoHash, { method: "DELETE" });
             fetchTorrents();
           };
           tdActions.appendChild(removeBtn);
-          tr.appendChild(tdActions);
 
+          tr.appendChild(tdActions);
           list.appendChild(tr);
         });
       } catch (error) {
-        console.error('Error fetching torrents:', error);
+        console.error("Error fetching torrents:", error);
       }
     }
 
+    // -----------------------------------------
+    // Fetching and updating config
+    // -----------------------------------------
     async function fetchConfig() {
+      if (!localStorage.getItem("userPubKey")) {
+        return;
+      }
       try {
-        const res = await fetch('/config');
+        const res = await fetch("/config");
         const config = await res.json();
-        document.getElementById('currentStorage').textContent = 'Current storage directory: ' + config.storageDir;
-        document.getElementById('storageDir').value = config.storageDir;
+        document.getElementById("currentStorage").textContent =
+          "Current storage directory: " + config.storageDir;
+        document.getElementById("storageDir").value = config.storageDir;
       } catch (error) {
-        console.error('Error fetching config:', error);
+        console.error("Error fetching config:", error);
       }
     }
 
-    document.getElementById('addTorrentForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const magnet = document.getElementById('magnet').value;
-      await fetch('/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ magnet })
+    // Update config form
+    document
+      .getElementById("configForm")
+      .addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const storageDir = document.getElementById("storageDir").value;
+        const res = await fetch("/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ storageDir }),
+        });
+        const result = await res.json();
+        document.getElementById("currentStorage").textContent =
+          "Current storage directory: " + result.storageDir;
+        // Close modal
+        bootstrap.Modal.getInstance(document.getElementById("settingsModal"))
+          .hide();
       });
-      document.getElementById('magnet').value = '';
-      fetchTorrents();
-    });
 
-    document.getElementById('configForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const storageDir = document.getElementById('storageDir').value;
-      const res = await fetch('/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storageDir })
-      });
-      const result = await res.json();
-      document.getElementById('currentStorage').textContent = 'Current storage directory: ' + result.storageDir;
-      // Close the modal after updating
-      bootstrap.Modal.getInstance(document.getElementById('settingsModal')).hide();
-    });
-
-    // Refresh the list and config every 5 seconds
+    // -----------------------------------------
+    // Interval to refresh torrent list & config
+    // -----------------------------------------
     setInterval(() => {
       fetchTorrents();
       fetchConfig();
     }, 5000);
-    fetchTorrents();
-    fetchConfig();
+
+    // On page load, run the same fetch calls
+    fetchProfileModalOnLoad();
+    function fetchProfileModalOnLoad() {
+      loadProfileModal();
+      fetchTorrents();
+      fetchConfig();
+    }
   </script>
 
   <!-- Bootstrap Bundle JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+  ></script>
 </body>
 </html>
