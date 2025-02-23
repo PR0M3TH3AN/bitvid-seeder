@@ -9,23 +9,20 @@
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
-    <!-- Font Awesome (for gear icon, etc.) -->
+    <!-- Font Awesome -->
     <link
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
       rel="stylesheet"
     />
     <!-- Custom CSS -->
     <link rel="stylesheet" href="style.css" />
+    <!-- Load nostr.js module -->
+    <script type="module" src="js/nostr.js"></script>
   </head>
   <body>
     <div class="container my-4">
       <h1 class="mb-4">bitvid Torrent Seeder</h1>
-
-      <!-- 
-      Circular Login Button / Profile Button.
-      If user is not logged in, it shows a default avatar. 
-      Clicking it either triggers login or opens profile modal.
-    -->
+      <!-- Circular Login/Profile Button -->
       <div class="d-flex justify-content-end mb-4">
         <button
           id="loginButton"
@@ -47,7 +44,6 @@
           />
         </button>
       </div>
-
       <!-- Add Torrent Form -->
       <div class="card mb-4">
         <div class="card-header">Add New Torrent</div>
@@ -70,14 +66,12 @@
           </form>
         </div>
       </div>
-
       <!-- Active Torrents Table -->
       <div class="card mb-4">
         <div
           class="card-header d-flex justify-content-between align-items-center"
         >
           Active Torrents
-          <!-- Settings Gear Icon -->
           <button
             class="btn btn-link"
             data-bs-toggle="modal"
@@ -100,15 +94,12 @@
                   <th>Actions</th>
                 </tr>
               </thead>
-              <tbody id="torrentList">
-                <!-- Rows populated dynamically -->
-              </tbody>
+              <tbody id="torrentList"></tbody>
             </table>
           </div>
         </div>
       </div>
     </div>
-
     <!-- Settings Modal -->
     <div
       class="modal fade"
@@ -129,7 +120,6 @@
             ></button>
           </div>
           <div class="modal-body">
-            <!-- Storage Settings Form -->
             <form id="configForm">
               <div class="mb-3">
                 <label for="storageDir" class="form-label"
@@ -152,10 +142,8 @@
         </div>
       </div>
     </div>
-
-    <!-- Profile Modal Container (will be loaded from external HTML) -->
+    <!-- Profile Modal Container -->
     <div id="profileModalContainer"></div>
-
     <!-- Helper to format bytes -->
     <script>
       function formatBytes(bytes) {
@@ -166,22 +154,77 @@
         return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
       }
     </script>
-
     <!-- Main UI Script -->
     <script>
-      // -----------------------------------------
-      // Load the profile modal from external file
-      // -----------------------------------------
+      async function updateProfileUI(pubkey) {
+        const btnAvatar = document.getElementById("loginButtonAvatar");
+        const profileName = document.getElementById("profileModalName");
+        if (!pubkey) {
+          btnAvatar.src = "assets/svg/default-profile.svg";
+          if (profileName) profileName.textContent = "Not logged in";
+          return;
+        }
+        try {
+          const events = await window.nostrClient.pool.list(
+            window.nostrClient.relays,
+            [{ kinds: [0], authors: [pubkey], limit: 1 }]
+          );
+          let displayName = pubkey;
+          let picture = "assets/svg/default-profile.svg";
+          if (events.length && events[0].content) {
+            const data = JSON.parse(events[0].content);
+            displayName = data.name || data.display_name || pubkey;
+            picture = data.picture || "assets/svg/default-profile.svg";
+          }
+          btnAvatar.src = picture;
+          if (profileName) profileName.textContent = displayName;
+        } catch (error) {
+          console.error("Error fetching profile data:", error);
+          btnAvatar.src = "assets/svg/default-profile.svg";
+          if (profileName) profileName.textContent = pubkey;
+        }
+      }
+
+      const nostrClient = {
+        login: async () => {
+          if (!window.nostr) {
+            throw new Error(
+              "Nostr extension not found. Please install a Nostr extension."
+            );
+          }
+          const pubkey = await window.nostr.getPublicKey();
+          return pubkey;
+        },
+        logout: () => {
+          localStorage.removeItem("userPubKey");
+        },
+      };
+
+      async function login() {
+        try {
+          const pubkey = await nostrClient.login();
+          if (pubkey) {
+            localStorage.setItem("userPubKey", pubkey);
+            await updateProfileUI(pubkey);
+          }
+        } catch (error) {
+          console.error("Login failed:", error);
+          alert("Login failed. Please try again.");
+        }
+      }
+
+      function logout() {
+        nostrClient.logout();
+        updateProfileUI(null);
+      }
+
       async function loadProfileModal() {
         try {
           const response = await fetch("components/profile-modal.html");
           const html = await response.text();
           document.getElementById("profileModalContainer").innerHTML = html;
-
-          // Once loaded, set up close and logout event listeners
           const closeBtn = document.getElementById("closeProfileModal");
           const logoutBtn = document.getElementById("profileLogoutBtn");
-
           if (closeBtn) {
             closeBtn.addEventListener("click", () => {
               toggleProfileModal(false);
@@ -198,7 +241,6 @@
         }
       }
 
-      // Show or hide the profile modal
       function toggleProfileModal(show) {
         const modal = document.getElementById("profileModal");
         if (!modal) return;
@@ -209,84 +251,22 @@
         }
       }
 
-      // -----------------------------------------
-      // Nostr login logic
-      // -----------------------------------------
-      const nostrClient = {
-        login: async () => {
-          if (!window.nostr) {
-            throw new Error(
-              "Nostr extension not found. Please install a Nostr extension."
-            );
-          }
-          const pubkey = await window.nostr.getPublicKey();
-          return pubkey;
-        },
-        logout: () => {
-          localStorage.removeItem("userPubKey");
-        },
-      };
-
-      // Attempt login
-      async function login() {
-        try {
-          const pubkey = await nostrClient.login();
-          if (pubkey) {
-            localStorage.setItem("userPubKey", pubkey);
-            updateProfileUI(pubkey);
-          }
-        } catch (error) {
-          console.error("Login failed:", error);
-          alert("Login failed. Please try again.");
-        }
-      }
-
-      // Logout
-      function logout() {
-        nostrClient.logout();
-        updateProfileUI(null);
-      }
-
-      // -----------------------------------------
-      // UI updates for the login button/avatar
-      // -----------------------------------------
-      function updateProfileUI(pubkey) {
-        const btnAvatar = document.getElementById("loginButtonAvatar");
-        const profileName = document.getElementById("profileModalName");
-        // Use the user's public key or another identifier as needed
-        if (!pubkey) {
-          btnAvatar.src = "assets/svg/default-profile.svg";
-          if (profileName) profileName.textContent = "Not logged in";
-        } else {
-          btnAvatar.src = "assets/svg/default-profile.svg"; // Replace with a proper avatar if available
-          if (profileName) profileName.textContent = pubkey;
-        }
-      }
-
-      // When login button is clicked
       document.getElementById("loginButton").addEventListener("click", () => {
         const userPubKey = localStorage.getItem("userPubKey");
         if (!userPubKey) {
-          // Not logged in, so log in
           login().then(() => {
-            // After login, open the modal
             toggleProfileModal(true);
           });
         } else {
-          // Already logged in, just show the profile modal
           toggleProfileModal(true);
         }
       });
 
-      // On page load, check if user is logged in
       const savedPubKey = localStorage.getItem("userPubKey") || null;
       if (savedPubKey) {
         updateProfileUI(savedPubKey);
       }
 
-      // -----------------------------------------
-      // Add torrent form
-      // -----------------------------------------
       document
         .getElementById("addTorrentForm")
         .addEventListener("submit", async (e) => {
@@ -305,58 +285,36 @@
           fetchTorrents();
         });
 
-      // -----------------------------------------
-      // Fetching torrents
-      // -----------------------------------------
       async function fetchTorrents() {
-        if (!localStorage.getItem("userPubKey")) {
-          // Don't block the entire page, just skip fetching.
-          return;
-        }
+        if (!localStorage.getItem("userPubKey")) return;
         try {
           const res = await fetch("/torrents");
           const torrents = await res.json();
           const list = document.getElementById("torrentList");
           list.innerHTML = "";
-
           torrents.forEach((torrent) => {
             const tr = document.createElement("tr");
-
-            // Name
             const tdName = document.createElement("td");
             tdName.textContent = torrent.name;
             tr.appendChild(tdName);
-
-            // Progress
             const tdProgress = document.createElement("td");
             tdProgress.textContent = (torrent.progress * 100).toFixed(2) + "%";
             tr.appendChild(tdProgress);
-
-            // Peers
             const tdPeers = document.createElement("td");
             tdPeers.textContent = torrent.numPeers;
             tr.appendChild(tdPeers);
-
-            // Downloaded
             const tdDownloaded = document.createElement("td");
             tdDownloaded.textContent = formatBytes(torrent.downloaded);
             tr.appendChild(tdDownloaded);
-
-            // Uploaded
             const tdUploaded = document.createElement("td");
             tdUploaded.textContent = formatBytes(torrent.uploaded);
             tr.appendChild(tdUploaded);
-
-            // Status
             const tdStatus = document.createElement("td");
             tdStatus.textContent = torrent.paused ? "Paused" : "Active";
             tr.appendChild(tdStatus);
-
-            // Actions
             const tdActions = document.createElement("td");
             const toggleBtn = document.createElement("button");
             toggleBtn.className = "btn btn-warning btn-sm me-2";
-
             if (torrent.paused) {
               toggleBtn.textContent = "Resume";
               toggleBtn.onclick = async () => {
@@ -371,8 +329,6 @@
               };
             }
             tdActions.appendChild(toggleBtn);
-
-            // Remove button
             const removeBtn = document.createElement("button");
             removeBtn.textContent = "Remove";
             removeBtn.className = "btn btn-danger btn-sm";
@@ -381,7 +337,6 @@
               fetchTorrents();
             };
             tdActions.appendChild(removeBtn);
-
             tr.appendChild(tdActions);
             list.appendChild(tr);
           });
@@ -390,13 +345,8 @@
         }
       }
 
-      // -----------------------------------------
-      // Fetching and updating config
-      // -----------------------------------------
       async function fetchConfig() {
-        if (!localStorage.getItem("userPubKey")) {
-          return;
-        }
+        if (!localStorage.getItem("userPubKey")) return;
         try {
           const res = await fetch("/config");
           const config = await res.json();
@@ -408,7 +358,6 @@
         }
       }
 
-      // Update config form
       document
         .getElementById("configForm")
         .addEventListener("submit", async (e) => {
@@ -422,29 +371,23 @@
           const result = await res.json();
           document.getElementById("currentStorage").textContent =
             "Current storage directory: " + result.storageDir;
-          // Close modal
           bootstrap.Modal.getInstance(
             document.getElementById("settingsModal")
           ).hide();
         });
 
-      // -----------------------------------------
-      // Interval to refresh torrent list & config
-      // -----------------------------------------
       setInterval(() => {
         fetchTorrents();
         fetchConfig();
       }, 5000);
 
-      // On page load, run the same fetch calls
-      fetchProfileModalOnLoad();
       function fetchProfileModalOnLoad() {
         loadProfileModal();
         fetchTorrents();
         fetchConfig();
       }
+      fetchProfileModalOnLoad();
     </script>
-
     <!-- Bootstrap Bundle JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   </body>

@@ -3,21 +3,15 @@
   class="hidden fixed inset-0 z-50"
   style="background: transparent"
 >
-  <!-- Dark/blur overlay -->
   <div class="modal-overlay"></div>
-
-  <!-- Modal container flex layout -->
   <div class="modal-container">
-    <!-- Modal content -->
     <div class="modal-content flex flex-col">
-      <!-- Header with sticky gradient -->
       <div
         class="modal-header-gradient p-4 flex items-center justify-between"
         style="position: sticky; top: 0"
       >
         <h2 class="text-xl font-bold text-white">Profile</h2>
         <button id="closeProfileModal" class="modal-close-btn">
-          <!-- Basic close icon (X) -->
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="w-6 h-6 text-white"
@@ -34,8 +28,6 @@
           </svg>
         </button>
       </div>
-
-      <!-- Body (scrollable content) -->
       <div class="modal-body">
         <div class="flex items-center space-x-4 mb-4">
           <img
@@ -52,8 +44,6 @@
           Additional profile details or user settings can go here.
         </p>
       </div>
-
-      <!-- Footer -->
       <div class="modal-footer">
         <button
           id="profileLogoutBtn"
