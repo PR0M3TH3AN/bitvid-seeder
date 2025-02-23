@@ -19,33 +19,34 @@
 
 /* For the modal layout container */
 .modal-container {
-  position: relative;
-  z-index: 20; /* Added to ensure modal content sits above the overlay */
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: center;
-  overflow-y: auto;
+  z-index: 50;
 }
 
 .modal-content {
-  background-color: #1a1a1a; /* Or .bg-gray-900 equivalent */
+  background-color: #1a1a1a;
   border-radius: 0.5rem;
   overflow: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 90%;
-  margin-top: 0;
-  margin-bottom: 0;
+  width: 90%;
+  max-width: 600px;
+  margin: 1rem;
 }
 
-/* On larger screens, go up to ~72rem wide */
+/* On larger screens, increase the width */
 @media (min-width: 1024px) {
   .modal-content {
-    max-width: 72rem; /* 6xl, ~1152px */
+    width: 50%;
+    max-width: 800px;
   }
 }
 
@@ -61,7 +62,7 @@
 
 /* Absolute overlay for darker background + blur */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background-color: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(10px);
@@ -71,15 +72,19 @@
 
 /* For the body content area inside the modal */
 .modal-body {
-  padding: 1.5rem;
+  padding: 2rem;
   flex: 1;
-  color: #e5e5e5; /* text-gray-200 */
+  color: #e5e5e5;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Footer area */
 .modal-footer {
-  border-top: 1px solid #4b5563; /* e.g., border-gray-700 */
+  border-top: 1px solid #4b5563;
   padding: 1rem 1.5rem;
   display: flex;
   justify-content: end;
@@ -91,9 +96,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem; /* 40px */
+  width: 2.5rem;
   height: 2.5rem;
-  border-radius: 9999px; /* fully rounded */
+  border-radius: 9999px;
   background-color: rgba(0, 0, 0, 0.5);
   cursor: pointer;
 }
@@ -108,12 +113,18 @@
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
 }
 
-/* Additional utility styles if needed */
+/* Additional utility styles */
 .flex {
   display: flex;
 }
+.flex-col {
+  flex-direction: column;
+}
 .items-center {
   align-items: center;
+}
+.justify-center {
+  justify-content: center;
 }
 .justify-between {
   justify-content: space-between;
@@ -138,6 +149,93 @@
 }
 
 .profile-avatar {
-  width: 40px;
-  height: 40px;
+  width: 80px;
+  height: 80px;
+}
+
+/* Logout button styling */
+#profileLogoutBtn {
+  background-color: #ef4444;
+  color: #ffffff;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+  border: none;
+}
+
+#profileLogoutBtn:hover {
+  background-color: #dc2626;
+}
+
+/* Custom settings modal styles */
+.custom-modal-content {
+  background-color: #1a1a1a; /* Dark background */
+  border-radius: 0.5rem;
+  color: #e5e5e5; /* Light text color */
+}
+
+.custom-modal-header {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+  border-bottom: none; /* Remove default border */
+  padding: 1.5rem; /* Increased padding */
+}
+
+.custom-modal-body {
+  padding: 2rem; /* Increased padding for better spacing */
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Center content horizontally */
+}
+
+.custom-modal-body .form-label {
+  color: #e5e5e5; /* Light text for labels */
+}
+
+.custom-modal-body .form-control {
+  background-color: #2d2d2d; /* Dark input background */
+  color: #e5e5e5; /* Light text in inputs */
+  border: 1px solid #4b5563; /* Subtle border */
+}
+
+.custom-modal-body .form-control::placeholder {
+  color: #9ca3af; /* Placeholder text color */
+}
+
+.custom-modal-body .btn-primary {
+  background-color: #2563eb; /* Bootstrap primary color */
+  border: none;
+  width: 100%; /* Full-width button */
+}
+
+.custom-modal-body .btn-primary:hover {
+  background-color: #1d4ed8; /* Darker on hover */
+}
+
+.custom-modal-body p {
+  color: #9ca3af; /* Light gray for current storage text */
+}
+
+/* Adjust modal dialog width */
+.modal-dialog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+@media (min-width: 1024px) {
+  .modal-dialog {
+    max-width: 800px;
+  }
+}
+
+.custom-btn-primary {
+  background-color: #ef4444; /* Red color */
+  border: none;
+  color: #ffffff;
+  width: 100%;
+}
+
+.custom-btn-primary:hover {
+  background-color: #dc2626; /* Darker red on hover */
 }
