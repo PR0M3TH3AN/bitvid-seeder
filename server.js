@@ -262,6 +262,25 @@ app.get("/torrents", (req, res) => {
   }
 });
 
+// Add after existing routes in server.js
+app.get("/download/:infoHash", async (req, res) => {
+  const infoHash = req.params.infoHash;
+  const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
+  if (!savedData) {
+    return res.status(404).json({ error: "Torrent not found" });
+  }
+  const filePath = path.join(STORAGE_DIR, savedData.name);
+  if (!(await pathExists(filePath))) {
+    return res.status(404).json({ error: "File not found" });
+  }
+  res.download(filePath, savedData.name, (err) => {
+    if (err) {
+      logger.error("Error downloading file: " + err);
+      res.status(500).json({ error: "Error downloading file" });
+    }
+  });
+});
+
 // Pause a torrent
 app.post("/pause/:infoHash", async (req, res) => {
   const infoHash = req.params.infoHash;

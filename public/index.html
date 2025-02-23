@@ -374,7 +374,7 @@
               tr.appendChild(tdStatus);
               const tdActions = document.createElement("td");
 
-              // Existing Pause/Resume button
+              // Pause/Resume button
               const toggleBtn = document.createElement("button");
               toggleBtn.className = "btn btn-warning btn-sm me-2";
               if (torrent.paused) {
@@ -394,7 +394,7 @@
               }
               tdActions.appendChild(toggleBtn);
 
-              // Existing Remove button
+              // Remove button
               const removeBtn = document.createElement("button");
               removeBtn.textContent = "Remove";
               removeBtn.className = "btn btn-danger btn-sm me-2";
@@ -406,7 +406,7 @@
               };
               tdActions.appendChild(removeBtn);
 
-              // New Copy Magnet button
+              // Copy Magnet button
               const copyMagnetBtn = document.createElement("button");
               copyMagnetBtn.textContent = "Copy Magnet";
               copyMagnetBtn.className = "btn btn-secondary btn-sm me-2";
@@ -424,6 +424,15 @@
                 }
               };
               tdActions.appendChild(copyMagnetBtn);
+
+              // New Download button
+              const downloadBtn = document.createElement("button");
+              downloadBtn.textContent = "Download";
+              downloadBtn.className = "btn btn-primary btn-sm";
+              downloadBtn.onclick = () => {
+                window.location.href = `/download/${torrent.infoHash}`;
+              };
+              tdActions.appendChild(downloadBtn);
 
               tr.appendChild(tdActions);
               list.appendChild(tr);
