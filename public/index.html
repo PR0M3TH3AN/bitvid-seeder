@@ -156,237 +156,230 @@
     </script>
     <!-- Main UI Script -->
     <script>
-      async function updateProfileUI(pubkey) {
-        const btnAvatar = document.getElementById("loginButtonAvatar");
-        const profileName = document.getElementById("profileModalName");
-        if (!pubkey) {
-          btnAvatar.src = "assets/svg/default-profile.svg";
-          if (profileName) profileName.textContent = "Not logged in";
-          return;
-        }
-        try {
-          const events = await window.nostrClient.pool.list(
-            window.nostrClient.relays,
-            [{ kinds: [0], authors: [pubkey], limit: 1 }]
-          );
-          let displayName = pubkey;
-          let picture = "assets/svg/default-profile.svg";
-          if (events.length && events[0].content) {
-            const data = JSON.parse(events[0].content);
-            displayName = data.name || data.display_name || pubkey;
-            picture = data.picture || "assets/svg/default-profile.svg";
-          }
-          btnAvatar.src = picture;
-          if (profileName) profileName.textContent = displayName;
-        } catch (error) {
-          console.error("Error fetching profile data:", error);
-          btnAvatar.src = "assets/svg/default-profile.svg";
-          if (profileName) profileName.textContent = pubkey;
-        }
-      }
-
-      const nostrClient = {
-        login: async () => {
-          if (!window.nostr) {
-            throw new Error(
-              "Nostr extension not found. Please install a Nostr extension."
-            );
-          }
-          const pubkey = await window.nostr.getPublicKey();
-          return pubkey;
-        },
-        logout: () => {
-          localStorage.removeItem("userPubKey");
-        },
-      };
-
-      async function login() {
-        try {
-          const pubkey = await nostrClient.login();
-          if (pubkey) {
-            localStorage.setItem("userPubKey", pubkey);
-            await updateProfileUI(pubkey);
-          }
-        } catch (error) {
-          console.error("Login failed:", error);
-          alert("Login failed. Please try again.");
-        }
-      }
-
-      function logout() {
-        nostrClient.logout();
-        updateProfileUI(null);
-      }
-
-      async function loadProfileModal() {
-        try {
-          const response = await fetch("components/profile-modal.html");
-          const html = await response.text();
-          document.getElementById("profileModalContainer").innerHTML = html;
-          const closeBtn = document.getElementById("closeProfileModal");
-          const logoutBtn = document.getElementById("profileLogoutBtn");
-          if (closeBtn) {
-            closeBtn.addEventListener("click", () => {
-              toggleProfileModal(false);
-            });
-          }
-          if (logoutBtn) {
-            logoutBtn.addEventListener("click", () => {
-              logout();
-              toggleProfileModal(false);
-            });
-          }
-        } catch (err) {
-          console.error("Error loading profile modal:", err);
-        }
-      }
-
-      function toggleProfileModal(show) {
-        const modal = document.getElementById("profileModal");
-        if (!modal) return;
-        if (show) {
-          modal.classList.remove("hidden");
-        } else {
-          modal.classList.add("hidden");
-        }
-      }
-
-      document.getElementById("loginButton").addEventListener("click", () => {
-        const userPubKey = localStorage.getItem("userPubKey");
-        if (!userPubKey) {
-          login().then(() => {
-            toggleProfileModal(true);
-          });
-        } else {
-          toggleProfileModal(true);
-        }
-      });
-
-      const savedPubKey = localStorage.getItem("userPubKey") || null;
-      if (savedPubKey) {
-        updateProfileUI(savedPubKey);
-      }
-
-      document
-        .getElementById("addTorrentForm")
-        .addEventListener("submit", async (e) => {
-          e.preventDefault();
-          if (!localStorage.getItem("userPubKey")) {
-            alert("Please login to add a torrent.");
+      window.addEventListener("nostrClientReady", () => {
+        // Profile-related functions
+        async function updateProfileUI(pubkey) {
+          const btnAvatar = document.getElementById("loginButtonAvatar");
+          const profileName = document.getElementById("profileModalName");
+          if (!pubkey) {
+            btnAvatar.src = "assets/svg/default-profile.svg";
+            if (profileName) profileName.textContent = "Not logged in";
             return;
           }
-          const magnet = document.getElementById("magnet").value;
-          await fetch("/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ magnet }),
-          });
-          document.getElementById("magnet").value = "";
-          fetchTorrents();
-        });
-
-      async function fetchTorrents() {
-        if (!localStorage.getItem("userPubKey")) return;
-        try {
-          const res = await fetch("/torrents");
-          const torrents = await res.json();
-          const list = document.getElementById("torrentList");
-          list.innerHTML = "";
-          torrents.forEach((torrent) => {
-            const tr = document.createElement("tr");
-            const tdName = document.createElement("td");
-            tdName.textContent = torrent.name;
-            tr.appendChild(tdName);
-            const tdProgress = document.createElement("td");
-            tdProgress.textContent = (torrent.progress * 100).toFixed(2) + "%";
-            tr.appendChild(tdProgress);
-            const tdPeers = document.createElement("td");
-            tdPeers.textContent = torrent.numPeers;
-            tr.appendChild(tdPeers);
-            const tdDownloaded = document.createElement("td");
-            tdDownloaded.textContent = formatBytes(torrent.downloaded);
-            tr.appendChild(tdDownloaded);
-            const tdUploaded = document.createElement("td");
-            tdUploaded.textContent = formatBytes(torrent.uploaded);
-            tr.appendChild(tdUploaded);
-            const tdStatus = document.createElement("td");
-            tdStatus.textContent = torrent.paused ? "Paused" : "Active";
-            tr.appendChild(tdStatus);
-            const tdActions = document.createElement("td");
-            const toggleBtn = document.createElement("button");
-            toggleBtn.className = "btn btn-warning btn-sm me-2";
-            if (torrent.paused) {
-              toggleBtn.textContent = "Resume";
-              toggleBtn.onclick = async () => {
-                await fetch("/resume/" + torrent.infoHash, { method: "POST" });
-                fetchTorrents();
-              };
-            } else {
-              toggleBtn.textContent = "Pause";
-              toggleBtn.onclick = async () => {
-                await fetch("/pause/" + torrent.infoHash, { method: "POST" });
-                fetchTorrents();
-              };
+          try {
+            const events = await window.nostrClient.pool.list(
+              window.nostrClient.relays,
+              [{ kinds: [0], authors: [pubkey], limit: 1 }]
+            );
+            let displayName = pubkey;
+            let picture = "assets/svg/default-profile.svg";
+            if (events.length && events[0].content) {
+              const data = JSON.parse(events[0].content);
+              displayName = data.name || data.display_name || pubkey;
+              picture = data.picture || "assets/svg/default-profile.svg";
             }
-            tdActions.appendChild(toggleBtn);
-            const removeBtn = document.createElement("button");
-            removeBtn.textContent = "Remove";
-            removeBtn.className = "btn btn-danger btn-sm";
-            removeBtn.onclick = async () => {
-              await fetch("/remove/" + torrent.infoHash, { method: "DELETE" });
-              fetchTorrents();
-            };
-            tdActions.appendChild(removeBtn);
-            tr.appendChild(tdActions);
-            list.appendChild(tr);
-          });
-        } catch (error) {
-          console.error("Error fetching torrents:", error);
+            btnAvatar.src = picture;
+            if (profileName) profileName.textContent = displayName;
+          } catch (error) {
+            console.error("Error fetching profile data:", error);
+            btnAvatar.src = "assets/svg/default-profile.svg";
+            if (profileName) profileName.textContent = pubkey;
+          }
         }
-      }
 
-      async function fetchConfig() {
-        if (!localStorage.getItem("userPubKey")) return;
-        try {
-          const res = await fetch("/config");
-          const config = await res.json();
-          document.getElementById("currentStorage").textContent =
-            "Current storage directory: " + config.storageDir;
-          document.getElementById("storageDir").value = config.storageDir;
-        } catch (error) {
-          console.error("Error fetching config:", error);
+        async function login() {
+          try {
+            const pubkey = await window.nostrClient.login();
+            if (pubkey) {
+              localStorage.setItem("userPubKey", pubkey);
+              await updateProfileUI(pubkey);
+            }
+          } catch (error) {
+            console.error("Login failed:", error);
+            alert("Login failed. Please try again.");
+          }
         }
-      }
 
-      document
-        .getElementById("configForm")
-        .addEventListener("submit", async (e) => {
-          e.preventDefault();
-          const storageDir = document.getElementById("storageDir").value;
-          const res = await fetch("/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ storageDir }),
-          });
-          const result = await res.json();
-          document.getElementById("currentStorage").textContent =
-            "Current storage directory: " + result.storageDir;
-          bootstrap.Modal.getInstance(
-            document.getElementById("settingsModal")
-          ).hide();
+        function logout() {
+          window.nostrClient.logout();
+          localStorage.removeItem("userPubKey");
+          updateProfileUI(null);
+        }
+
+        async function loadProfileModal() {
+          try {
+            const response = await fetch("components/profile-modal.html");
+            const html = await response.text();
+            document.getElementById("profileModalContainer").innerHTML = html;
+            const closeBtn = document.getElementById("closeProfileModal");
+            const logoutBtn = document.getElementById("profileLogoutBtn");
+            if (closeBtn) {
+              closeBtn.addEventListener("click", () => {
+                toggleProfileModal(false);
+              });
+            }
+            if (logoutBtn) {
+              logoutBtn.addEventListener("click", () => {
+                logout();
+                toggleProfileModal(false);
+              });
+            }
+          } catch (err) {
+            console.error("Error loading profile modal:", err);
+          }
+        }
+
+        function toggleProfileModal(show) {
+          const modal = document.getElementById("profileModal");
+          if (!modal) return;
+          modal.classList.toggle("hidden", !show);
+        }
+
+        // Profile initialization
+        document.getElementById("loginButton").addEventListener("click", () => {
+          const userPubKey = localStorage.getItem("userPubKey");
+          if (!userPubKey) {
+            login().then(() => {
+              toggleProfileModal(true);
+            });
+          } else {
+            toggleProfileModal(true);
+          }
         });
 
-      setInterval(() => {
-        fetchTorrents();
-        fetchConfig();
-      }, 5000);
+        const savedPubKey = localStorage.getItem("userPubKey") || null;
+        if (savedPubKey) {
+          updateProfileUI(savedPubKey);
+        }
 
-      function fetchProfileModalOnLoad() {
         loadProfileModal();
+
+        // Torrent management functions
+        document
+          .getElementById("addTorrentForm")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            if (!localStorage.getItem("userPubKey")) {
+              alert("Please login to add a torrent.");
+              return;
+            }
+            const magnet = document.getElementById("magnet").value;
+            await fetch("/add", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ magnet }),
+            });
+            document.getElementById("magnet").value = "";
+            fetchTorrents();
+          });
+
+        async function fetchTorrents() {
+          if (!localStorage.getItem("userPubKey")) return;
+          try {
+            const res = await fetch("/torrents");
+            const torrents = await res.json();
+            const list = document.getElementById("torrentList");
+            list.innerHTML = "";
+            torrents.forEach((torrent) => {
+              const tr = document.createElement("tr");
+              const tdName = document.createElement("td");
+              tdName.textContent = torrent.name;
+              tr.appendChild(tdName);
+              const tdProgress = document.createElement("td");
+              tdProgress.textContent =
+                (torrent.progress * 100).toFixed(2) + "%";
+              tr.appendChild(tdProgress);
+              const tdPeers = document.createElement("td");
+              tdPeers.textContent = torrent.numPeers;
+              tr.appendChild(tdPeers);
+              const tdDownloaded = document.createElement("td");
+              tdDownloaded.textContent = formatBytes(torrent.downloaded);
+              tr.appendChild(tdDownloaded);
+              const tdUploaded = document.createElement("td");
+              tdUploaded.textContent = formatBytes(torrent.uploaded);
+              tr.appendChild(tdUploaded);
+              const tdStatus = document.createElement("td");
+              tdStatus.textContent = torrent.paused ? "Paused" : "Active";
+              tr.appendChild(tdStatus);
+              const tdActions = document.createElement("td");
+              const toggleBtn = document.createElement("button");
+              toggleBtn.className = "btn btn-warning btn-sm me-2";
+              if (torrent.paused) {
+                toggleBtn.textContent = "Resume";
+                toggleBtn.onclick = async () => {
+                  await fetch("/resume/" + torrent.infoHash, {
+                    method: "POST",
+                  });
+                  fetchTorrents();
+                };
+              } else {
+                toggleBtn.textContent = "Pause";
+                toggleBtn.onclick = async () => {
+                  await fetch("/pause/" + torrent.infoHash, {
+                    method: "POST",
+                  });
+                  fetchTorrents();
+                };
+              }
+              tdActions.appendChild(toggleBtn);
+              const removeBtn = document.createElement("button");
+              removeBtn.textContent = "Remove";
+              removeBtn.className = "btn btn-danger btn-sm";
+              removeBtn.onclick = async () => {
+                await fetch("/remove/" + torrent.infoHash, {
+                  method: "DELETE",
+                });
+                fetchTorrents();
+              };
+              tdActions.appendChild(removeBtn);
+              tr.appendChild(tdActions);
+              list.appendChild(tr);
+            });
+          } catch (error) {
+            console.error("Error fetching torrents:", error);
+          }
+        }
+
+        async function fetchConfig() {
+          if (!localStorage.getItem("userPubKey")) return;
+          try {
+            const res = await fetch("/config");
+            const config = await res.json();
+            document.getElementById("currentStorage").textContent =
+              "Current storage directory: " + config.storageDir;
+            document.getElementById("storageDir").value = config.storageDir;
+          } catch (error) {
+            console.error("Error fetching config:", error);
+          }
+        }
+
+        document
+          .getElementById("configForm")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const storageDir = document.getElementById("storageDir").value;
+            const res = await fetch("/config", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ storageDir }),
+            });
+            const result = await res.json();
+            document.getElementById("currentStorage").textContent =
+              "Current storage directory: " + result.storageDir;
+            bootstrap.Modal.getInstance(
+              document.getElementById("settingsModal")
+            ).hide();
+          });
+
+        // Periodic updates and initial fetch
+        setInterval(() => {
+          fetchTorrents();
+          fetchConfig();
+        }, 5000);
+
         fetchTorrents();
         fetchConfig();
-      }
-      fetchProfileModalOnLoad();
+      });
     </script>
     <!-- Bootstrap Bundle JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

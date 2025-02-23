@@ -31,3 +31,5 @@ class NostrClient {
 export const nostrClient = new NostrClient();
 window.nostrClient = nostrClient;
 window.NostrTools = { nip19, SimplePool };
+// Dispatch ready event after initialization
+window.dispatchEvent(new Event("nostrClientReady"));
