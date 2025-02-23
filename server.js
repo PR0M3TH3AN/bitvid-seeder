@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import winston from "winston";
-import JSONStream from "jsonstream";
+import JSONStream from "JSONStream";
 import { lock, unlock } from "proper-lockfile";
 import os from "os";
 import multer from "multer"; // Added for file uploads
@@ -75,15 +75,36 @@ function formatBytes(bytes) {
 // **Load Configuration**
 async function loadConfig() {
   try {
-    if (await pathExists(CONFIG_FILE)) {
+    if (!fs.existsSync(CONFIG_FILE)) {
+      logger.info(
+        "No config.json file found. Creating new default config file."
+      );
+      const defaultStorageDir = path.join(
+        os.homedir(),
+        "Documents",
+        "bitvid-seeder"
+      );
+      const defaultConfig = { storageDir: defaultStorageDir };
+      fs.writeFileSync(
+        CONFIG_FILE,
+        JSON.stringify(defaultConfig, null, 2),
+        "utf8"
+      );
+      config = defaultConfig;
+    } else {
       const data = await fsPromises.readFile(CONFIG_FILE, "utf-8");
       config = JSON.parse(data);
-      config.storageDir = path.resolve(config.storageDir); // Ensure absolute path
-    } else {
-      await fsPromises.writeFile(
-        CONFIG_FILE,
-        JSON.stringify({ storageDir: "./downloads" }, null, 2)
-      );
+      // If storageDir is empty, set a default based on the user's home directory
+      if (!config.storageDir || config.storageDir.trim() === "") {
+        config.storageDir = path.join(
+          os.homedir(),
+          "Documents",
+          "bitvid-seeder"
+        );
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+      } else {
+        config.storageDir = path.resolve(config.storageDir); // Ensure absolute path
+      }
     }
   } catch (err) {
     logger.error("Error reading config file, using default config: " + err);
@@ -94,8 +115,8 @@ await loadConfig();
 // **Load Torrents with Streaming**
 async function loadSavedTorrentsFromFile() {
   if (!fs.existsSync(TORRENTS_FILE)) {
-    logger.info("No torrents.json file found. Starting with an empty list.");
-    return;
+    logger.info("No torrents.json file found. Creating new empty file.");
+    fs.writeFileSync(TORRENTS_FILE, "[]", "utf8");
   }
   return new Promise((resolve, reject) => {
     const stream = fs.createReadStream(TORRENTS_FILE, { encoding: "utf8" });
