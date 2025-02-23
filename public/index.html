@@ -91,17 +91,22 @@
       </div>
       <!-- Active Torrents Table -->
       <div class="card mb-4">
-        <div
-          class="card-header d-flex justify-content-between align-items-center"
-        >
-          Active Torrents
-          <button
-            class="btn btn-link"
-            data-bs-toggle="modal"
-            data-bs-target="#settingsModal"
-          >
-            <i class="fas fa-cog"></i>
-          </button>
+        <div class="card-header">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Active Torrents</h5>
+            <div class="d-flex align-items-center">
+              <div id="paginationContainer" class="me-3">
+                <!-- Pagination will be inserted here -->
+              </div>
+              <button
+                class="btn btn-link"
+                data-bs-toggle="modal"
+                data-bs-target="#settingsModal"
+              >
+                <i class="fas fa-cog"></i>
+              </button>
+            </div>
+          </div>
         </div>
         <div class="card-body">
           <div class="table-responsive">
@@ -122,7 +127,6 @@
           </div>
         </div>
       </div>
-    </div>
     <!-- Settings Modal -->
     <div
       class="modal fade"
@@ -447,6 +451,8 @@
           const totalPages = Math.ceil(total / limit);
           const pagination = document.createElement("div");
           pagination.className = "d-flex justify-content-center mt-3";
+
+          // Previous button
           const prevBtn = document.createElement("button");
           prevBtn.className = "btn btn-secondary me-2";
           prevBtn.textContent = "Previous";
@@ -458,6 +464,21 @@
             }
           };
           pagination.appendChild(prevBtn);
+
+          // Page number buttons
+          for (let i = 1; i <= totalPages; i++) {
+            const pageBtn = document.createElement("button");
+            pageBtn.className =
+              i === page ? "btn btn-primary me-1" : "btn btn-secondary me-1";
+            pageBtn.textContent = i;
+            pageBtn.onclick = () => {
+              currentPage = i;
+              fetchTorrents(currentPage);
+            };
+            pagination.appendChild(pageBtn);
+          }
+
+          // Next button
           const nextBtn = document.createElement("button");
           nextBtn.className = "btn btn-secondary";
           nextBtn.textContent = "Next";
@@ -469,14 +490,18 @@
             }
           };
           pagination.appendChild(nextBtn);
-          const cardBody = document.querySelector(".card-body");
-          const existingPagination = cardBody.querySelector(".d-flex");
-          if (existingPagination) {
-            existingPagination.remove();
-          }
-          cardBody.appendChild(pagination);
-        }
 
+          // Insert pagination into the designated container in Active Torrents header
+          const paginationContainer = document.getElementById(
+            "paginationContainer"
+          );
+          const existingPagination =
+            paginationContainer.querySelector(".d-flex");
+          if (existingPagination) {
+            existingPagination.remove(); // Remove any existing pagination to avoid duplicates
+          }
+          paginationContainer.appendChild(pagination);
+        }
         async function fetchConfig() {
           if (!localStorage.getItem("userPubKey")) return;
           try {

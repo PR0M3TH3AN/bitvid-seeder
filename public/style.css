@@ -239,3 +239,29 @@
 .custom-btn-primary:hover {
   background-color: #dc2626; /* Darker red on hover */
 }
+
+.card-header {
+  padding: 1rem 1.25rem; /* Match Bootstrap default padding */
+  background-color: #f8f9fa; /* Light gray background, consistent with Bootstrap cards */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.125); /* Default card border */
+}
+
+.card-header h5 {
+  margin-bottom: 0; /* Ensure no extra bottom margin */
+  font-size: 1.25rem; /* Match Bootstrap h5 size */
+}
+
+#activeTorrentsHeader .btn {
+  font-size: 0.875rem; /* Smaller buttons */
+  padding: 0.25rem 0.5rem; /* Reduced padding */
+}
+
+#paginationContainer .btn {
+  font-size: 0.875rem; /* Smaller buttons for pagination */
+  padding: 0.25rem 0.5rem; /* Reduced padding */
+}
+
+#paginationContainer .d-flex {
+  margin-top: 0; /* Remove extra margin */
+  gap: 0.25rem; /* Space between pagination buttons */
+}
