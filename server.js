@@ -13,7 +13,8 @@ import winston from "winston";
 import { exec } from "child_process";
 import JSONStream from "JSONStream";
 import { lock, unlock } from "proper-lockfile";
-import os from "os"; // Added for CPU and memory monitoring
+import os from "os";
+import multer from "multer"; // Added for file uploads
 
 // **Logger Setup**
 const logger = winston.createLogger({
@@ -30,7 +31,7 @@ const logger = winston.createLogger({
 // **App and Client Initialization**
 const app = express();
 const port = process.env.PORT || 3000;
-const client = new WebTorrent({ maxWebConns: 200 });
+const client = new WebTorrent({ maxWebConns: 200, utp: false });
 client.setMaxListeners(50);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,6 +44,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 app.use(express.json());
+
+// **Multer Configuration**
+const upload = multer({ dest: "uploads/" }); // Temporary storage for uploaded files
 
 // **Configuration and Global Variables**
 const CONFIG_FILE = path.join(__dirname, "config.json");
@@ -222,6 +226,7 @@ app.get("/torrents", (req, res) => {
       downloaded: t.downloaded,
       uploaded: t.uploaded,
       paused: false,
+      magnet: t.magnetURI, // Added
     }));
     const paused = savedTorrents
       .filter((s) => s.paused)
@@ -233,6 +238,7 @@ app.get("/torrents", (req, res) => {
         downloaded: 0,
         uploaded: 0,
         paused: true,
+        magnet: s.magnet, // Added
       }));
     const allTorrents = [...active, ...paused];
     const paginatedTorrents = allTorrents.slice(start, end);
@@ -365,6 +371,81 @@ app.post("/add", (req, res) => {
   } catch (err) {
     logger.error("Error adding torrent: " + err);
     res.status(500).json({ error: "Error adding torrent" });
+  }
+});
+
+// Upload and seed a video file
+app.post("/upload", upload.single("video"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No video file provided" });
+  }
+
+  try {
+    const tempFilePath = req.file.path; // Temporary file path (e.g., uploads/...)
+    const fileName = req.file.originalname;
+    const destPath = path.join(STORAGE_DIR, fileName);
+
+    // Ensure the destination directory exists
+    if (!fs.existsSync(STORAGE_DIR)) {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    }
+
+    // Copy the file to STORAGE_DIR (works across file systems)
+    await fsPromises.copyFile(tempFilePath, destPath);
+
+    // Delete the temporary file
+    await fsPromises.unlink(tempFilePath);
+
+    // Wait for the file to be accessible
+    let attempts = 0;
+    const maxAttempts = 5;
+    while (attempts < maxAttempts) {
+      try {
+        await fsPromises.access(destPath, fs.constants.R_OK);
+        break; // File is accessible, exit the loop
+      } catch (err) {
+        if (err.code === "EBUSY") {
+          attempts++;
+          logger.info(
+            `File ${destPath} is busy, retrying (${attempts}/${maxAttempts})...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+        } else {
+          throw err; // Throw other errors (e.g., permissions)
+        }
+      }
+    }
+    if (attempts === maxAttempts) {
+      throw new Error(
+        `File ${destPath} remained locked after ${maxAttempts} attempts`
+      );
+    }
+
+    // Seed the file with WebTorrent
+    client.seed(destPath, { name: fileName }, (torrent) => {
+      attachTorrentDebugEvents(torrent);
+      logger.info(`Torrent added from file upload: ${torrent.infoHash}`);
+
+      // Generate magnet link and torrent data
+      const magnet = torrent.magnetURI;
+      const torrentData = {
+        magnet,
+        infoHash: torrent.infoHash,
+        name: fileName,
+        paused: false,
+        dateAdded: new Date().toISOString(),
+        size: torrent.length,
+      };
+
+      savedTorrents.push(torrentData);
+      saveTorrents();
+      res.json(torrentData);
+    });
+  } catch (err) {
+    logger.error("Error uploading file: " + err.message);
+    res
+      .status(500)
+      .json({ error: "Error uploading file", message: err.message });
   }
 });
 

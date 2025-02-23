@@ -59,17 +59,29 @@
       <div class="card mb-4">
         <div class="card-header">Add New Torrent</div>
         <div class="card-body">
-          <form id="addTorrentForm" class="row g-3">
+          <form
+            id="addTorrentForm"
+            class="row g-3"
+            enctype="multipart/form-data"
+          >
             <div class="col-md-9">
               <input
                 type="text"
                 id="magnet"
                 class="form-control"
                 placeholder="Enter magnet link"
-                required
+              />
+              <label for="videoFile" class="form-label mt-2"
+                >Or upload a video file:</label
+              >
+              <input
+                type="file"
+                id="videoFile"
+                class="form-control"
+                accept="video/*"
               />
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 align-self-end">
               <button type="submit" class="btn btn-primary w-100">
                 Add Torrent
               </button>
@@ -289,14 +301,39 @@
               alert("Please login to add a torrent.");
               return;
             }
+
             const magnet = document.getElementById("magnet").value;
-            await fetch("/add", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ magnet }),
-            });
-            document.getElementById("magnet").value = "";
-            fetchTorrents(currentPage);
+            const videoFile = document.getElementById("videoFile").files[0];
+
+            if (magnet && videoFile) {
+              alert(
+                "Please provide either a magnet link or a video file, not both."
+              );
+              return;
+            }
+
+            if (magnet) {
+              // Add torrent via magnet link
+              await fetch("/add", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ magnet }),
+              });
+              document.getElementById("magnet").value = "";
+              fetchTorrents(currentPage);
+            } else if (videoFile) {
+              // Upload video file
+              const formData = new FormData();
+              formData.append("video", videoFile);
+              await fetch("/upload", {
+                method: "POST",
+                body: formData,
+              });
+              document.getElementById("videoFile").value = "";
+              fetchTorrents(currentPage);
+            } else {
+              alert("Please provide a magnet link or a video file.");
+            }
           });
 
         async function fetchTorrents(page) {
@@ -336,6 +373,8 @@
               tdStatus.textContent = torrent.paused ? "Paused" : "Active";
               tr.appendChild(tdStatus);
               const tdActions = document.createElement("td");
+
+              // Existing Pause/Resume button
               const toggleBtn = document.createElement("button");
               toggleBtn.className = "btn btn-warning btn-sm me-2";
               if (torrent.paused) {
@@ -354,9 +393,11 @@
                 };
               }
               tdActions.appendChild(toggleBtn);
+
+              // Existing Remove button
               const removeBtn = document.createElement("button");
               removeBtn.textContent = "Remove";
-              removeBtn.className = "btn btn-danger btn-sm";
+              removeBtn.className = "btn btn-danger btn-sm me-2";
               removeBtn.onclick = async () => {
                 await fetch("/remove/" + torrent.infoHash, {
                   method: "DELETE",
@@ -364,6 +405,26 @@
                 fetchTorrents(currentPage);
               };
               tdActions.appendChild(removeBtn);
+
+              // New Copy Magnet button
+              const copyMagnetBtn = document.createElement("button");
+              copyMagnetBtn.textContent = "Copy Magnet";
+              copyMagnetBtn.className = "btn btn-secondary btn-sm me-2";
+              copyMagnetBtn.onclick = async () => {
+                try {
+                  if (torrent.magnet) {
+                    await navigator.clipboard.writeText(torrent.magnet);
+                    alert("Magnet link copied to clipboard!");
+                  } else {
+                    alert("Magnet link not found.");
+                  }
+                } catch (err) {
+                  console.error("Error copying magnet link:", err);
+                  alert("Failed to copy magnet link.");
+                }
+              };
+              tdActions.appendChild(copyMagnetBtn);
+
               tr.appendChild(tdActions);
               list.appendChild(tr);
             });
