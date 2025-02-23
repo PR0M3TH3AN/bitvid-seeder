@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import winston from "winston";
-import JSONStream from "JSONStream";
+import JSONStream from "jsonstream";
 import { lock, unlock } from "proper-lockfile";
 import os from "os";
 import multer from "multer"; // Added for file uploads
@@ -533,25 +533,36 @@ setInterval(() => {
   );
 }, 60000); // Log every minute
 
-// **Start Server**
-const server = app.listen(port, () => {
-  logger.info(`Server running on http://localhost:${port}`);
-});
-
-// **Graceful Shutdown**
-function shutdown() {
-  logger.info("Shutting down server...");
-  server.close(() => {
-    logger.info("HTTP server closed.");
-    client.destroy((err) => {
-      if (err) {
-        logger.error("Error destroying WebTorrent client: " + err);
-      } else {
-        logger.info("WebTorrent client destroyed.");
-      }
-      process.exit(0);
-    });
+// **Start Server Function**
+function startServer() {
+  const server = app.listen(port, () => {
+    logger.info(`Server running on http://localhost:${port}`);
   });
+
+  // Graceful shutdown
+  function shutdown() {
+    logger.info("Shutting down server...");
+    server.close(() => {
+      logger.info("HTTP server closed.");
+      client.destroy((err) => {
+        if (err) {
+          logger.error("Error destroying WebTorrent client: " + err);
+        } else {
+          logger.info("WebTorrent client destroyed.");
+        }
+        process.exit(0);
+      });
+    });
+  }
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  return port; // Return the port immediately (it's assigned synchronously)
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+
+// **Conditionally Start Server**
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startServer(); // Start server directly if run as `node server.js`
+}
+
+export { startServer }; // Export for Electron or other modules
