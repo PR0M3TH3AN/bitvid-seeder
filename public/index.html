@@ -157,6 +157,10 @@
     <!-- Main UI Script -->
     <script>
       window.addEventListener("nostrClientReady", () => {
+        // Pagination variables
+        let currentPage = 1;
+        const limit = 10;
+
         // Profile-related functions
         async function updateProfileUI(pubkey) {
           const btnAvatar = document.getElementById("loginButtonAvatar");
@@ -281,14 +285,22 @@
               body: JSON.stringify({ magnet }),
             });
             document.getElementById("magnet").value = "";
-            fetchTorrents();
+            fetchTorrents(currentPage);
           });
 
-        async function fetchTorrents() {
+        async function fetchTorrents(page) {
           if (!localStorage.getItem("userPubKey")) return;
           try {
-            const res = await fetch("/torrents");
-            const torrents = await res.json();
+            const res = await fetch(`/torrents?page=${page}&limit=${limit}`);
+            if (!res.ok) {
+              throw new Error(`Server error: ${res.status} ${res.statusText}`);
+            }
+            const data = await res.json();
+            if (!data.torrents) {
+              console.error("No torrents found in response:", data);
+              return;
+            }
+            const { torrents, total, page: current } = data;
             const list = document.getElementById("torrentList");
             list.innerHTML = "";
             torrents.forEach((torrent) => {
@@ -321,15 +333,13 @@
                   await fetch("/resume/" + torrent.infoHash, {
                     method: "POST",
                   });
-                  fetchTorrents();
+                  fetchTorrents(currentPage);
                 };
               } else {
                 toggleBtn.textContent = "Pause";
                 toggleBtn.onclick = async () => {
-                  await fetch("/pause/" + torrent.infoHash, {
-                    method: "POST",
-                  });
-                  fetchTorrents();
+                  await fetch("/pause/" + torrent.infoHash, { method: "POST" });
+                  fetchTorrents(currentPage);
                 };
               }
               tdActions.appendChild(toggleBtn);
@@ -340,15 +350,50 @@
                 await fetch("/remove/" + torrent.infoHash, {
                   method: "DELETE",
                 });
-                fetchTorrents();
+                fetchTorrents(currentPage);
               };
               tdActions.appendChild(removeBtn);
               tr.appendChild(tdActions);
               list.appendChild(tr);
             });
+            updatePaginationControls(total, current);
           } catch (error) {
             console.error("Error fetching torrents:", error);
           }
+        }
+
+        function updatePaginationControls(total, page) {
+          const totalPages = Math.ceil(total / limit);
+          const pagination = document.createElement("div");
+          pagination.className = "d-flex justify-content-center mt-3";
+          const prevBtn = document.createElement("button");
+          prevBtn.className = "btn btn-secondary me-2";
+          prevBtn.textContent = "Previous";
+          prevBtn.disabled = page === 1;
+          prevBtn.onclick = () => {
+            if (page > 1) {
+              currentPage = page - 1;
+              fetchTorrents(currentPage);
+            }
+          };
+          pagination.appendChild(prevBtn);
+          const nextBtn = document.createElement("button");
+          nextBtn.className = "btn btn-secondary";
+          nextBtn.textContent = "Next";
+          nextBtn.disabled = page === totalPages;
+          nextBtn.onclick = () => {
+            if (page < totalPages) {
+              currentPage = page + 1;
+              fetchTorrents(currentPage);
+            }
+          };
+          pagination.appendChild(nextBtn);
+          const cardBody = document.querySelector(".card-body");
+          const existingPagination = cardBody.querySelector(".d-flex");
+          if (existingPagination) {
+            existingPagination.remove();
+          }
+          cardBody.appendChild(pagination);
         }
 
         async function fetchConfig() {
@@ -382,14 +427,14 @@
             ).hide();
           });
 
-        // Periodic updates and initial fetch
+        // Initial fetch and periodic updates
+        fetchTorrents(currentPage);
+        fetchConfig();
+
         setInterval(() => {
-          fetchTorrents();
+          fetchTorrents(currentPage);
           fetchConfig();
         }, 5000);
-
-        fetchTorrents();
-        fetchConfig();
       });
     </script>
     <!-- Bootstrap Bundle JS -->

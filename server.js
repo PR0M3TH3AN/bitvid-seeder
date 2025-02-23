@@ -11,8 +11,11 @@ import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import winston from "winston";
 import { exec } from "child_process";
+import JSONStream from "JSONStream";
+import { lock, unlock } from "proper-lockfile";
+import os from "os"; // Added for CPU and memory monitoring
 
-// Set up Winston logger (debug level)
+// **Logger Setup**
 const logger = winston.createLogger({
   level: "debug",
   format: winston.format.combine(
@@ -24,16 +27,16 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
+// **App and Client Initialization**
 const app = express();
 const port = process.env.PORT || 3000;
-const client = new WebTorrent();
+const client = new WebTorrent({ maxWebConns: 200 });
 client.setMaxListeners(50);
 
-// ES module __dirname workaround
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Rate limiting middleware
+// **Rate Limiting Middleware**
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -41,17 +44,14 @@ const limiter = rateLimit({
 app.use(limiter);
 app.use(express.json());
 
-// --- Global Variables and Helper Functions ---
-
-// Configuration
+// **Configuration and Global Variables**
 const CONFIG_FILE = path.join(__dirname, "config.json");
 let config = { storageDir: path.join(__dirname, "downloads") };
 
-// Torrents data
 const TORRENTS_FILE = path.join(__dirname, "torrents.json");
 let savedTorrents = [];
 
-// Helper: Check if a path exists
+// **Helper Functions**
 async function pathExists(p) {
   try {
     await fsPromises.access(p);
@@ -61,13 +61,21 @@ async function pathExists(p) {
   }
 }
 
-// Load configuration from file
+function formatBytes(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
+}
+
+// **Load Configuration**
 async function loadConfig() {
   try {
     if (await pathExists(CONFIG_FILE)) {
       const data = await fsPromises.readFile(CONFIG_FILE, "utf-8");
       config = JSON.parse(data);
-      config.storageDir = path.resolve(__dirname, config.storageDir);
+      config.storageDir = path.resolve(config.storageDir); // Ensure absolute path
     } else {
       await fsPromises.writeFile(
         CONFIG_FILE,
@@ -80,41 +88,61 @@ async function loadConfig() {
 }
 await loadConfig();
 
-// Load saved torrents from file
+// **Load Torrents with Streaming**
 async function loadSavedTorrentsFromFile() {
-  try {
-    if (fs.existsSync(TORRENTS_FILE)) {
-      const data = await fsPromises.readFile(TORRENTS_FILE, "utf-8");
-      savedTorrents = JSON.parse(data);
-      logger.info(`Loaded saved torrents: ${JSON.stringify(savedTorrents)}`);
-    } else {
-      logger.info("No torrents.json file found. Starting with an empty list.");
-    }
-  } catch (err) {
-    logger.error("Error loading torrents file: " + err);
+  if (!fs.existsSync(TORRENTS_FILE)) {
+    logger.info("No torrents.json file found. Starting with an empty list.");
+    return;
   }
+  return new Promise((resolve, reject) => {
+    const stream = fs.createReadStream(TORRENTS_FILE, { encoding: "utf8" });
+    const parser = JSONStream.parse("*");
+    savedTorrents = [];
+    parser.on("data", (torrent) => savedTorrents.push(torrent));
+    parser.on("end", () => resolve());
+    parser.on("error", (err) => reject(err));
+    stream.pipe(parser);
+  });
 }
 await loadSavedTorrentsFromFile();
 
-// Save torrents to file
+// **Batch Save Torrents with File Locking**
+let pendingChanges = false;
+
 async function saveTorrents() {
-  try {
-    await fsPromises.writeFile(
-      TORRENTS_FILE,
-      JSON.stringify(savedTorrents, null, 2)
-    );
-  } catch (err) {
-    logger.error("Error saving torrents file: " + err);
-  }
+  pendingChanges = true;
 }
 
-// Ensure storage directory exists
+setInterval(async () => {
+  if (pendingChanges) {
+    await lock(TORRENTS_FILE);
+    try {
+      const stream = JSONStream.stringify("[\n", ",\n", "\n]");
+      const fileStream = fs.createWriteStream(TORRENTS_FILE);
+      stream.pipe(fileStream);
+      savedTorrents.forEach((torrent) => stream.write(torrent));
+      stream.end();
+      await new Promise((resolve, reject) => {
+        fileStream.on("finish", resolve);
+        fileStream.on("error", reject);
+      });
+      pendingChanges = false;
+      logger.info("Torrents saved to file");
+    } catch (err) {
+      logger.error("Error saving torrents: " + err);
+    } finally {
+      await unlock(TORRENTS_FILE);
+    }
+  }
+}, 5000);
+
+// **Ensure Storage Directory Exists**
 let STORAGE_DIR = config.storageDir;
 if (!fs.existsSync(STORAGE_DIR)) {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
 }
 
-// Attach torrent debug events
+// **Torrent Event Debugging**
 function attachTorrentDebugEvents(torrent) {
   torrent.on("wire", (wire, addr) => {
     logger.debug(`Torrent ${torrent.infoHash} connected to peer: ${addr}`);
@@ -127,8 +155,7 @@ function attachTorrentDebugEvents(torrent) {
   });
 }
 
-// --- Resume Active Torrents on Startup ---
-// For each saved torrent that is not paused, add (or seed) it.
+// **Resume Active Torrents**
 async function resumeActiveTorrents() {
   logger.info("Resuming active torrents...");
   for (const torrent of savedTorrents) {
@@ -139,7 +166,7 @@ async function resumeActiveTorrents() {
         if (exists) {
           client.seed(
             torrentPath,
-            { name: torrent.name, keepSeeding: true },
+            { name: torrent.name },
             (torrentInstance) => {
               attachTorrentDebugEvents(torrentInstance);
               logger.info(
@@ -150,7 +177,7 @@ async function resumeActiveTorrents() {
         } else {
           client.add(
             torrent.magnet,
-            { path: STORAGE_DIR, keepSeeding: true },
+            { path: STORAGE_DIR },
             (torrentInstance) => {
               attachTorrentDebugEvents(torrentInstance);
               logger.info(
@@ -167,8 +194,9 @@ async function resumeActiveTorrents() {
 }
 await resumeActiveTorrents();
 
-// --- API Routes ---
-// GET /config - Return current configuration as JSON
+// **API Routes**
+
+// Get configuration
 app.get("/config", async (req, res) => {
   try {
     res.json({ storageDir: config.storageDir });
@@ -178,9 +206,14 @@ app.get("/config", async (req, res) => {
   }
 });
 
-// GET /torrents - Return both active and paused torrents
+// List torrents with pagination
 app.get("/torrents", (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const start = (page - 1) * limit;
+    const end = start + limit;
+
     const active = client.torrents.map((t) => ({
       infoHash: t.infoHash,
       name: t.name,
@@ -201,16 +234,29 @@ app.get("/torrents", (req, res) => {
         uploaded: 0,
         paused: true,
       }));
-    const torrents = [...active, ...paused];
-    logger.info("GET /torrents returning: " + JSON.stringify(torrents));
-    res.json(torrents);
+    const allTorrents = [...active, ...paused];
+    const paginatedTorrents = allTorrents.slice(start, end);
+
+    res.json({
+      torrents: paginatedTorrents,
+      total: allTorrents.length,
+      page,
+      limit,
+    });
   } catch (err) {
-    logger.error("Error listing torrents: " + err);
-    res.status(500).json({ error: "Error listing torrents" });
+    logger.error("Error listing torrents: " + err.message);
+    res.status(500).json({
+      torrents: [],
+      total: 0,
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 10,
+      error: "Error listing torrents",
+      message: err.message,
+    });
   }
 });
 
-// POST /pause/:infoHash - Pause a torrent
+// Pause a torrent
 app.post("/pause/:infoHash", async (req, res) => {
   const infoHash = req.params.infoHash;
   const torrent = client.get(infoHash);
@@ -226,13 +272,12 @@ app.post("/pause/:infoHash", async (req, res) => {
     }
     const entry = savedTorrents.find((s) => s.infoHash === infoHash);
     if (entry) entry.paused = true;
-    await saveTorrents();
-    logger.info(`Torrent paused: ${infoHash}`);
+    saveTorrents();
     res.json({ message: "Torrent paused" });
   });
 });
 
-// POST /resume/:infoHash - Resume a paused torrent
+// Resume a torrent
 app.post("/resume/:infoHash", async (req, res) => {
   const infoHash = req.params.infoHash;
   const entry = savedTorrents.find((s) => s.infoHash === infoHash);
@@ -240,32 +285,22 @@ app.post("/resume/:infoHash", async (req, res) => {
     return res.status(400).json({ error: "Torrent not found in saved data" });
   }
   entry.paused = false;
-  await saveTorrents();
+  saveTorrents();
   const torrentPath = path.join(STORAGE_DIR, entry.name);
   const exists = await pathExists(torrentPath);
   try {
     if (exists) {
-      client.seed(
-        torrentPath,
-        { name: entry.name, keepSeeding: true },
-        (torrent) => {
-          attachTorrentDebugEvents(torrent);
-          logger.info(
-            `Torrent resumed (seeding from file): ${torrent.infoHash}`
-          );
-          res.json({ message: "Torrent resumed" });
-        }
-      );
+      client.seed(torrentPath, { name: entry.name }, (torrent) => {
+        attachTorrentDebugEvents(torrent);
+        logger.info(`Torrent resumed (seeding from file): ${torrent.infoHash}`);
+        res.json({ message: "Torrent resumed" });
+      });
     } else {
-      client.add(
-        entry.magnet,
-        { path: STORAGE_DIR, keepSeeding: true },
-        (torrent) => {
-          attachTorrentDebugEvents(torrent);
-          logger.info(`Torrent resumed (downloading): ${torrent.infoHash}`);
-          res.json({ message: "Torrent resumed" });
-        }
-      );
+      client.add(torrent.magnet, { path: STORAGE_DIR }, (torrent) => {
+        attachTorrentDebugEvents(torrent);
+        logger.info(`Torrent resumed (downloading): ${torrent.infoHash}`);
+        res.json({ message: "Torrent resumed" });
+      });
     }
   } catch (err) {
     logger.error("Error resuming torrent: " + err);
@@ -273,30 +308,34 @@ app.post("/resume/:infoHash", async (req, res) => {
   }
 });
 
-// POST /config - Update storage directory
+// Update configuration with path validation
 app.post("/config", async (req, res) => {
   const { storageDir } = req.body;
   if (!storageDir || typeof storageDir !== "string") {
     return res.status(400).json({ error: "Invalid storageDir provided" });
   }
   try {
-    STORAGE_DIR = path.resolve(__dirname, storageDir);
-    config.storageDir = STORAGE_DIR;
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    const resolvedPath = path.resolve(storageDir);
+    if (!path.isAbsolute(resolvedPath)) {
+      throw new Error("Path must be absolute");
     }
+    if (!fs.existsSync(resolvedPath)) {
+      fs.mkdirSync(resolvedPath, { recursive: true });
+    }
+    STORAGE_DIR = resolvedPath;
+    config.storageDir = resolvedPath;
     await fsPromises.writeFile(
       CONFIG_FILE,
-      JSON.stringify({ storageDir }, null, 2)
+      JSON.stringify({ storageDir: resolvedPath }, null, 2)
     );
-    res.json({ message: "Config updated", storageDir: STORAGE_DIR });
+    res.json({ message: "Config updated", storageDir: resolvedPath });
   } catch (err) {
-    logger.error("Error updating config: " + err);
+    logger.error("Error updating config: " + err.message);
     res.status(500).json({ error: "Error updating config" });
   }
 });
 
-// POST /add - Add a new torrent
+// Add a new torrent
 app.post("/add", (req, res) => {
   const { magnet } = req.body;
   if (!magnet || typeof magnet !== "string") {
@@ -310,7 +349,7 @@ app.post("/add", (req, res) => {
     return res.status(409).json({ error: "Torrent already added." });
   }
   try {
-    client.add(magnet, { path: STORAGE_DIR, keepSeeding: true }, (torrent) => {
+    client.add(magnet, { path: STORAGE_DIR }, (torrent) => {
       attachTorrentDebugEvents(torrent);
       logger.info(`Torrent added: ${torrent.infoHash}`);
       const torrentData = {
@@ -329,7 +368,7 @@ app.post("/add", (req, res) => {
   }
 });
 
-// DELETE /remove/:infoHash - Remove a torrent completely.
+// Remove a torrent
 app.delete("/remove/:infoHash", (req, res) => {
   const infoHash = req.params.infoHash;
   if (!infoHash || typeof infoHash !== "string") {
@@ -349,7 +388,7 @@ app.delete("/remove/:infoHash", (req, res) => {
         return res.status(500).json({ error: "Error removing torrent" });
       }
       savedTorrents = savedTorrents.filter((t) => t.infoHash !== infoHash);
-      await saveTorrents();
+      saveTorrents();
       const torrentPath = path.join(STORAGE_DIR, torrentName);
       if (await pathExists(torrentPath)) {
         try {
@@ -367,107 +406,38 @@ app.delete("/remove/:infoHash", (req, res) => {
   }
 });
 
-// --- End API Routes ---
-
-// Serve static files from "public"
+// **Serve Static Files**
 app.use(express.static("public"));
 
-// Log system limits periodically
-function logSystemLimits() {
-  const platform = process.platform;
-  if (platform === "win32") {
-    logger.info("Running on Windows.");
-    const activeHandles = process._getActiveHandles
-      ? process._getActiveHandles().length
-      : "N/A";
-    logger.info(`Active handles: ${activeHandles}`);
-    exec("netsh int tcp show global", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error running netsh: ${err.message}`);
-      } else {
-        logger.info(`TCP Global Settings:\n${stdout}`);
-      }
-    });
-  } else if (platform === "linux") {
-    exec('bash -c "ulimit -n"', (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching file descriptor limit: ${err.message}`);
-      } else {
-        logger.info(`File descriptor limit: ${stdout.trim()}`);
-      }
-    });
-    exec(`lsof -p ${process.pid} | wc -l`, (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error counting open file descriptors: ${err.message}`);
-      } else {
-        logger.info(`Current open file descriptors: ${stdout.trim()}`);
-      }
-    });
-    exec("cat /proc/sys/net/core/rmem_max", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching rmem_max: ${err.message}`);
-      } else {
-        logger.info(`Receive buffer max (rmem_max): ${stdout.trim()}`);
-      }
-    });
-    exec("cat /proc/sys/net/core/wmem_max", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching wmem_max: ${err.message}`);
-      } else {
-        logger.info(`Send buffer max (wmem_max): ${stdout.trim()}`);
-      }
-    });
-  } else if (platform === "darwin") {
-    exec("ulimit -n", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching file descriptor limit: ${err.message}`);
-      } else {
-        logger.info(`File descriptor limit: ${stdout.trim()}`);
-      }
-    });
-    exec(`lsof -p ${process.pid} | wc -l`, (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error counting open file descriptors: ${err.message}`);
-      } else {
-        logger.info(`Current open file descriptors: ${stdout.trim()}`);
-      }
-    });
-    exec("sysctl kern.ipc.maxsockbuf", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching kern.ipc.maxsockbuf: ${err.message}`);
-      } else {
-        logger.info(`kern.ipc.maxsockbuf: ${stdout.trim()}`);
-      }
-    });
-    exec("sysctl net.inet.tcp.recvspace", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching net.inet.tcp.recvspace: ${err.message}`);
-      } else {
-        logger.info(`net.inet.tcp.recvspace: ${stdout.trim()}`);
-      }
-    });
-    exec("sysctl net.inet.tcp.sendspace", (err, stdout, stderr) => {
-      if (err) {
-        logger.error(`Error fetching net.inet.tcp.sendspace: ${err.message}`);
-      } else {
-        logger.info(`net.inet.tcp.sendspace: ${stdout.trim()}`);
-      }
-    });
-  } else {
-    logger.info(
-      `Platform ${platform} not specifically supported for system limits logging.`
-    );
-  }
-}
-logSystemLimits();
-setInterval(logSystemLimits, 60000);
+// **Resource Usage Monitoring**
+setInterval(() => {
+  const cpuUsage = os.loadavg()[0]; // 1-minute load average
+  const freeMem = os.freemem();
+  const totalMem = os.totalmem();
+  const memUsage = ((totalMem - freeMem) / totalMem) * 100;
+  logger.info(
+    `CPU Load: ${cpuUsage.toFixed(2)}%, Memory Usage: ${memUsage.toFixed(2)}%`
+  );
 
-// Start the server
+  const mem = process.memoryUsage();
+  logger.info(
+    `Memory: RSS=${formatBytes(mem.rss)}, Heap=${formatBytes(
+      mem.heapUsed
+    )}/${formatBytes(mem.heapTotal)}`
+  );
+  logger.info(
+    `Active torrents: ${client.torrents.length}, Paused torrents: ${
+      savedTorrents.filter((t) => t.paused).length
+    }`
+  );
+}, 60000); // Log every minute
+
+// **Start Server**
 const server = app.listen(port, () => {
   logger.info(`Server running on http://localhost:${port}`);
 });
 
-// Graceful shutdown
+// **Graceful Shutdown**
 function shutdown() {
   logger.info("Shutting down server...");
   server.close(() => {
