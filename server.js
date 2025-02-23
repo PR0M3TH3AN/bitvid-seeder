@@ -10,7 +10,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import winston from "winston";
-import { exec } from "child_process";
 import JSONStream from "JSONStream";
 import { lock, unlock } from "proper-lockfile";
 import os from "os";
@@ -110,35 +109,26 @@ async function loadSavedTorrentsFromFile() {
 }
 await loadSavedTorrentsFromFile();
 
-// **Batch Save Torrents with File Locking**
-let pendingChanges = false;
-
+// **Asynchronous Save Torrents with File Locking**
 async function saveTorrents() {
-  pendingChanges = true;
-}
-
-setInterval(async () => {
-  if (pendingChanges) {
-    await lock(TORRENTS_FILE);
-    try {
-      const stream = JSONStream.stringify("[\n", ",\n", "\n]");
-      const fileStream = fs.createWriteStream(TORRENTS_FILE);
-      stream.pipe(fileStream);
-      savedTorrents.forEach((torrent) => stream.write(torrent));
-      stream.end();
-      await new Promise((resolve, reject) => {
-        fileStream.on("finish", resolve);
-        fileStream.on("error", reject);
-      });
-      pendingChanges = false;
-      logger.info("Torrents saved to file");
-    } catch (err) {
-      logger.error("Error saving torrents: " + err);
-    } finally {
-      await unlock(TORRENTS_FILE);
-    }
+  await lock(TORRENTS_FILE);
+  try {
+    const stream = JSONStream.stringify("[\n", ",\n", "\n]");
+    const fileStream = fs.createWriteStream(TORRENTS_FILE);
+    stream.pipe(fileStream);
+    savedTorrents.forEach((torrent) => stream.write(torrent));
+    stream.end();
+    await new Promise((resolve, reject) => {
+      fileStream.on("finish", resolve);
+      fileStream.on("error", reject);
+    });
+    logger.info("Torrents saved to file");
+  } catch (err) {
+    logger.error("Error saving torrents: " + err);
+  } finally {
+    await unlock(TORRENTS_FILE);
   }
-}, 5000);
+}
 
 // **Ensure Storage Directory Exists**
 let STORAGE_DIR = config.storageDir;
@@ -262,7 +252,7 @@ app.get("/torrents", (req, res) => {
   }
 });
 
-// Add after existing routes in server.js
+// Download route
 app.get("/download/:infoHash", async (req, res) => {
   const infoHash = req.params.infoHash;
   const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
@@ -284,22 +274,33 @@ app.get("/download/:infoHash", async (req, res) => {
 // Pause a torrent
 app.post("/pause/:infoHash", async (req, res) => {
   const infoHash = req.params.infoHash;
+  logger.debug(`Pausing torrent with infoHash: ${infoHash}`); // Added logging
+  // Validate infoHash
+  if (!infoHash || typeof infoHash !== "string") {
+    return res.status(400).json({ error: "Invalid infoHash" });
+  }
   const torrent = client.get(infoHash);
   if (!torrent) {
     return res
       .status(400)
       .json({ error: "Torrent not active or already paused" });
   }
-  client.remove(infoHash, { destroyStore: false }, async (err) => {
-    if (err) {
-      logger.error("Error pausing torrent: " + err);
-      return res.status(500).json({ error: "Error pausing torrent" });
-    }
+  try {
+    // Wrap client.remove in a promise to handle both synchronous and asynchronous errors
+    await new Promise((resolve, reject) => {
+      client.remove(infoHash, { destroyStore: false }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
     const entry = savedTorrents.find((s) => s.infoHash === infoHash);
     if (entry) entry.paused = true;
-    saveTorrents();
+    await saveTorrents(); // Await the save operation
     res.json({ message: "Torrent paused" });
-  });
+  } catch (err) {
+    logger.error("Error pausing torrent: " + err);
+    res.status(500).json({ error: "Error pausing torrent" });
+  }
 });
 
 // Resume a torrent
@@ -310,7 +311,7 @@ app.post("/resume/:infoHash", async (req, res) => {
     return res.status(400).json({ error: "Torrent not found in saved data" });
   }
   entry.paused = false;
-  saveTorrents();
+  await saveTorrents(); // Await the save operation
   const torrentPath = path.join(STORAGE_DIR, entry.name);
   const exists = await pathExists(torrentPath);
   try {
@@ -384,7 +385,7 @@ app.post("/add", (req, res) => {
         paused: false,
       };
       savedTorrents.push(torrentData);
-      saveTorrents();
+      saveTorrents(); // Call saveTorrents
       res.json(torrentData);
     });
   } catch (err) {
@@ -457,7 +458,7 @@ app.post("/upload", upload.single("video"), async (req, res) => {
       };
 
       savedTorrents.push(torrentData);
-      saveTorrents();
+      saveTorrents(); // Call saveTorrents
       res.json(torrentData);
     });
   } catch (err) {
@@ -488,7 +489,7 @@ app.delete("/remove/:infoHash", (req, res) => {
         return res.status(500).json({ error: "Error removing torrent" });
       }
       savedTorrents = savedTorrents.filter((t) => t.infoHash !== infoHash);
-      saveTorrents();
+      await saveTorrents(); // Await the save operation
       const torrentPath = path.join(STORAGE_DIR, torrentName);
       if (await pathExists(torrentPath)) {
         try {

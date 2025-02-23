@@ -57,34 +57,20 @@
       </div>
       <!-- Add Torrent Form -->
       <div class="card mb-4">
-        <div class="card-header">Add New Torrent</div>
+        <div class="card-header">
+          <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Add New Torrent</h5>
+          </div>
+        </div>
         <div class="card-body">
-          <form
-            id="addTorrentForm"
-            class="row g-3"
-            enctype="multipart/form-data"
-          >
+          <form id="addTorrentForm" class="row g-3" enctype="multipart/form-data">
             <div class="col-md-9">
-              <input
-                type="text"
-                id="magnet"
-                class="form-control"
-                placeholder="Enter magnet link"
-              />
-              <label for="videoFile" class="form-label mt-2"
-                >Or upload a video file:</label
-              >
-              <input
-                type="file"
-                id="videoFile"
-                class="form-control"
-                accept="video/*"
-              />
+              <input type="text" id="magnet" class="form-control" placeholder="Enter magnet link" />
+              <label for="videoFile" class="form-label mt-2">Or upload a video file:</label>
+              <input type="file" id="videoFile" class="form-control" accept="video/*" />
             </div>
             <div class="col-md-3 align-self-end">
-              <button type="submit" class="btn btn-primary w-100">
-                Add Torrent
-              </button>
+              <button type="submit" class="btn btn-primary w-100">Add Torrent</button>
             </div>
           </form>
         </div>

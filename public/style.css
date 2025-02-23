@@ -241,9 +241,10 @@
 }
 
 .card-header {
-  padding: 1rem 1.25rem; /* Match Bootstrap default padding */
-  background-color: #f8f9fa; /* Light gray background, consistent with Bootstrap cards */
-  border-bottom: 1px solid rgba(0, 0, 0, 0.125); /* Default card border */
+  padding: 1rem 1.25rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+  min-height: 70px; /* Adjust based on your design */
 }
 
 .card-header h5 {
