@@ -24,7 +24,7 @@ bitvid Torrent Seeder is a Node.js application that uses WebTorrent to seed torr
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/bitvid-seeder.git
+   git clone https://github.com/PR0M3TH3AN/bitvid-seeder.git
    cd bitvid-seeder
    ```
 
