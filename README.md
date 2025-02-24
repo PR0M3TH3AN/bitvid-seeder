@@ -1,4 +1,4 @@
-# bitvid Torrent Seeder
+# bitvid Seeder
 
 Simple Torrent Seeder is a Node.js application that uses WebTorrent to seed torrents from the command line and provides a modern web interface to manage them. The app saves torrent metadata to a JSON file so that torrents can be resumed automatically when the server restarts. It supports adding, pausing/resuming, and removing torrents, and displays details such as progress, peer count, and upload/download amounts.
 
@@ -22,8 +22,8 @@ Simple Torrent Seeder is a Node.js application that uses WebTorrent to seed torr
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/simple-torrent-seeder.git
-   cd simple-torrent-seeder
+   git clone https://github.com/PR0M3TH3AN/bitvid-seeder.git
+   cd bitvid-seeder
    ```
 
 2. **Install Dependencies:**
