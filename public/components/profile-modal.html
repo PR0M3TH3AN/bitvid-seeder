@@ -1,0 +1,57 @@
+<div
+  id="profileModal"
+  class="hidden fixed inset-0 z-50"
+  style="background: transparent"
+>
+  <div class="modal-overlay"></div>
+  <div class="modal-container">
+    <div class="modal-content flex flex-col">
+      <div
+        class="modal-header-gradient p-4 flex items-center justify-between"
+        style="position: sticky; top: 0"
+      >
+        <h2 class="text-xl font-bold text-white">Profile</h2>
+        <button id="closeProfileModal" class="modal-close-btn">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-6 h-6 text-white"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body flex flex-col items-center justify-center">
+        <div class="flex items-center space-x-4 mb-4">
+          <img
+            id="profileModalAvatar"
+            src="assets/svg/default-profile.svg"
+            alt="Profile"
+            class="profile-avatar object-cover rounded-full"
+          />
+          <p id="profileModalName" class="text-lg font-bold truncate">
+            Loading...
+          </p>
+        </div>
+        <p class="text-sm text-gray-400">
+          Additional profile details or user settings can go here.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button
+          id="profileLogoutBtn"
+          class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 focus:outline-none"
+        >
+          Logout
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

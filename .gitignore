@@ -1,5 +1,10 @@
 node_modules/
 downloads/
+dist/
+uploads/
+temp/
 
 saved_config.yaml
 repo-context.txt
+torrents.json
+config.json
