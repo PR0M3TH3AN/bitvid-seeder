@@ -1,4 +1,4 @@
-# bitvid Torrent Seeder
+# bitvid Seeder
 
 bitvid Torrent Seeder is a Node.js application that uses WebTorrent to seed torrents and provides a modern web interface for managing them. The app saves torrent metadata to a JSON file (`torrents.json`), allowing torrents to be resumed automatically when the server restarts. It supports adding, pausing/resuming, and removing torrents, and displays details such as progress, peer count, and upload/download amounts. The application can be run as a standalone server or packaged as a desktop application using Electron, providing a system tray icon for easy access.
 
