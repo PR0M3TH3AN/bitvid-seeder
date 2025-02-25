@@ -113,423 +113,517 @@
           </div>
         </div>
       </div>
-    <!-- Settings Modal -->
-    <div
-      class="modal fade"
-      id="settingsModal"
-      tabindex="-1"
-      aria-labelledby="settingsModalLabel"
-      aria-hidden="true"
-    >
-      <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content custom-modal-content">
-          <div class="modal-header custom-modal-header">
-            <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
-            <button
-              type="button"
-              class="btn-close"
-              data-bs-dismiss="modal"
-              aria-label="Close"
-            ></button>
-          </div>
-          <div class="modal-body custom-modal-body">
-            <form id="configForm">
-              <div class="mb-3">
-                <label for="storageDir" class="form-label"
-                  >Storage Directory</label
-                >
-                <input
-                  type="text"
-                  id="storageDir"
-                  class="form-control"
-                  placeholder="Storage directory"
-                  required
-                />
-              </div>
-              <button type="submit" class="btn custom-btn-primary w-100">
-                Update Storage Directory
-              </button>
-            </form>
-            <p id="currentStorage" class="mt-3 text-center"></p>
+      <!-- Settings Modal -->
+      <div
+        class="modal fade"
+        id="settingsModal"
+        tabindex="-1"
+        aria-labelledby="settingsModalLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content custom-modal-content">
+            <div class="modal-header custom-modal-header">
+              <h5 class="modal-title" id="settingsModalLabel">Settings</h5>
+              <button
+                type="button"
+                class="btn-close"
+                data-bs-dismiss="modal"
+                aria-label="Close"
+              ></button>
+            </div>
+            <div class="modal-body custom-modal-body">
+              <form id="configForm">
+                <div class="mb-3">
+                  <label for="storageDir" class="form-label">Storage Directory</label>
+                  <input
+                    type="text"
+                    id="storageDir"
+                    class="form-control"
+                    placeholder="Storage directory"
+                    required
+                  />
+                </div>
+                <div class="mb-3">
+                  <label for="maxConns" class="form-label">Max Connections</label>
+                  <input
+                    type="number"
+                    id="maxConns"
+                    class="form-control"
+                    placeholder="Max connections"
+                    min="1"
+                    required
+                  />
+                </div>
+                <div class="mb-3 form-check">
+                  <input type="checkbox" id="utp" class="form-check-input" />
+                  <label for="utp" class="form-check-label">Use UTP</label>
+                </div>
+                <button type="submit" class="btn custom-btn-primary w-100">
+                  Update Configuration
+                </button>
+              </form>
+              <p id="currentStorage" class="mt-3 text-center"></p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-    <!-- Profile Modal Container -->
-    <div id="profileModalContainer"></div>
-    <!-- Helper to format bytes -->
-    <script>
-      function formatBytes(bytes) {
-        if (bytes === 0) return "0 B";
-        const k = 1024;
-        const sizes = ["B", "KB", "MB", "GB", "TB"];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
-      }
-    </script>
-    <!-- Main UI Script -->
-    <script>
-      window.addEventListener("nostrClientReady", () => {
-        // Pagination variables
-        let currentPage = 1;
-        const limit = 20;
-
-        // Profile-related functions
-        async function updateProfileUI(pubkey) {
-          const btnAvatar = document.getElementById("loginButtonAvatar");
-          const profileAvatar = document.getElementById("profileModalAvatar");
-          const profileName = document.getElementById("profileModalName");
-
-          if (!pubkey) {
-            btnAvatar.src = "assets/svg/default-profile.svg";
-            if (profileAvatar)
-              profileAvatar.src = "assets/svg/default-profile.svg";
-            if (profileName) profileName.textContent = "Not logged in";
-            return;
-          }
-
-          try {
-            const events = await window.nostrClient.pool.list(
-              window.nostrClient.relays,
-              [{ kinds: [0], authors: [pubkey], limit: 1 }]
-            );
-            let displayName = pubkey;
-            let picture = "assets/svg/default-profile.svg";
-            if (events.length && events[0].content) {
-              const data = JSON.parse(events[0].content);
-              displayName = data.name || data.display_name || pubkey;
-              picture = data.picture || "assets/svg/default-profile.svg";
-            }
-            btnAvatar.src = picture;
-            if (profileAvatar) profileAvatar.src = picture;
-            if (profileName) profileName.textContent = displayName;
-          } catch (error) {
-            console.error("Error fetching profile data:", error);
-            btnAvatar.src = "assets/svg/default-profile.svg";
-            if (profileAvatar)
-              profileAvatar.src = "assets/svg/default-profile.svg";
-            if (profileName) profileName.textContent = pubkey;
-          }
+      <!-- Profile Modal Container -->
+      <div id="profileModalContainer"></div>
+      <!-- Helper to format bytes -->
+      <script>
+        function formatBytes(bytes) {
+          if (bytes === 0) return "0 B";
+          const k = 1024;
+          const sizes = ["B", "KB", "MB", "GB", "TB"];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
         }
+      </script>
+      <!-- Main UI Script -->
+      <script>
+        window.addEventListener("nostrClientReady", () => {
+          // Pagination variables
+          let currentPage = 1;
+          const limit = 20;
 
-        async function login() {
-          try {
-            const pubkey = await window.nostrClient.login();
-            if (pubkey) {
-              localStorage.setItem("userPubKey", pubkey);
-              await updateProfileUI(pubkey);
-            }
-          } catch (error) {
-            console.error("Login failed:", error);
-            alert("Login failed. Please try again.");
-          }
-        }
+          // Profile-related functions
+          async function updateProfileUI(pubkey) {
+            const btnAvatar = document.getElementById("loginButtonAvatar");
+            const profileAvatar = document.getElementById("profileModalAvatar");
+            const profileName = document.getElementById("profileModalName");
 
-        function logout() {
-          window.nostrClient.logout();
-          localStorage.removeItem("userPubKey");
-          updateProfileUI(null);
-        }
-
-        async function loadProfileModal() {
-          try {
-            const response = await fetch("components/profile-modal.html");
-            const html = await response.text();
-            document.getElementById("profileModalContainer").innerHTML = html;
-            const closeBtn = document.getElementById("closeProfileModal");
-            const logoutBtn = document.getElementById("profileLogoutBtn");
-            if (closeBtn) {
-              closeBtn.addEventListener("click", () => {
-                toggleProfileModal(false);
-              });
-            }
-            if (logoutBtn) {
-              logoutBtn.addEventListener("click", () => {
-                logout();
-                toggleProfileModal(false);
-              });
-            }
-          } catch (err) {
-            console.error("Error loading profile modal:", err);
-          }
-        }
-
-        function toggleProfileModal(show) {
-          const modal = document.getElementById("profileModal");
-          if (!modal) return;
-          modal.classList.toggle("hidden", !show);
-        }
-
-        // Profile initialization
-        document
-          .getElementById("loginButton")
-          .addEventListener("click", async () => {
-            const userPubKey = localStorage.getItem("userPubKey");
-            if (!userPubKey) {
-              await login();
-              toggleProfileModal(true);
-              await updateProfileUI(localStorage.getItem("userPubKey"));
-            } else {
-              toggleProfileModal(true);
-              await updateProfileUI(userPubKey);
-            }
-          });
-
-        const savedPubKey = localStorage.getItem("userPubKey") || null;
-        if (savedPubKey) {
-          updateProfileUI(savedPubKey);
-        }
-
-        loadProfileModal();
-
-        // Torrent management functions
-        document
-          .getElementById("addTorrentForm")
-          .addEventListener("submit", async (e) => {
-            e.preventDefault();
-            if (!localStorage.getItem("userPubKey")) {
-              alert("Please login to add a torrent.");
+            if (!pubkey) {
+              btnAvatar.src = "assets/svg/default-profile.svg";
+              if (profileAvatar)
+                profileAvatar.src = "assets/svg/default-profile.svg";
+              if (profileName) profileName.textContent = "Not logged in";
               return;
             }
 
-            const magnet = document.getElementById("magnet").value;
-            const videoFile = document.getElementById("videoFile").files[0];
-
-            if (magnet && videoFile) {
-              alert(
-                "Please provide either a magnet link or a video file, not both."
+            try {
+              const events = await window.nostrClient.pool.list(
+                window.nostrClient.relays,
+                [{ kinds: [0], authors: [pubkey], limit: 1 }]
               );
-              return;
-            }
-
-            if (magnet) {
-              // Add torrent via magnet link
-              await fetch("/add", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ magnet }),
-              });
-              document.getElementById("magnet").value = "";
-              fetchTorrents(currentPage);
-            } else if (videoFile) {
-              // Upload video file
-              const formData = new FormData();
-              formData.append("video", videoFile);
-              await fetch("/upload", {
-                method: "POST",
-                body: formData,
-              });
-              document.getElementById("videoFile").value = "";
-              fetchTorrents(currentPage);
-            } else {
-              alert("Please provide a magnet link or a video file.");
-            }
-          });
-
-        async function fetchTorrents(page) {
-          if (!localStorage.getItem("userPubKey")) return;
-          try {
-            const res = await fetch(`/torrents?page=${page}&limit=${limit}`);
-            if (!res.ok) {
-              throw new Error(`Server error: ${res.status} ${res.statusText}`);
-            }
-            const data = await res.json();
-            if (!data.torrents) {
-              console.error("No torrents found in response:", data);
-              return;
-            }
-            const { torrents, total, page: current } = data;
-            const list = document.getElementById("torrentList");
-            list.innerHTML = "";
-            torrents.forEach((torrent) => {
-              const tr = document.createElement("tr");
-              const tdName = document.createElement("td");
-              tdName.textContent = torrent.name;
-              tr.appendChild(tdName);
-              const tdProgress = document.createElement("td");
-              tdProgress.textContent =
-                (torrent.progress * 100).toFixed(2) + "%";
-              tr.appendChild(tdProgress);
-              const tdPeers = document.createElement("td");
-              tdPeers.textContent = torrent.numPeers;
-              tr.appendChild(tdPeers);
-              const tdDownloaded = document.createElement("td");
-              tdDownloaded.textContent = formatBytes(torrent.downloaded);
-              tr.appendChild(tdDownloaded);
-              const tdUploaded = document.createElement("td");
-              tdUploaded.textContent = formatBytes(torrent.uploaded);
-              tr.appendChild(tdUploaded);
-              const tdStatus = document.createElement("td");
-              tdStatus.textContent = torrent.paused ? "Paused" : "Active";
-              tr.appendChild(tdStatus);
-              const tdActions = document.createElement("td");
-
-              // Pause/Resume button
-              const toggleBtn = document.createElement("button");
-              toggleBtn.className = "btn btn-warning btn-sm me-2";
-              if (torrent.paused) {
-                toggleBtn.textContent = "Resume";
-                toggleBtn.onclick = async () => {
-                  await fetch("/resume/" + torrent.infoHash, {
-                    method: "POST",
-                  });
-                  fetchTorrents(currentPage);
-                };
-              } else {
-                toggleBtn.textContent = "Pause";
-                toggleBtn.onclick = async () => {
-                  await fetch("/pause/" + torrent.infoHash, { method: "POST" });
-                  fetchTorrents(currentPage);
-                };
+              let displayName = pubkey;
+              let picture = "assets/svg/default-profile.svg";
+              if (events.length && events[0].content) {
+                const data = JSON.parse(events[0].content);
+                displayName = data.name || data.display_name || pubkey;
+                picture = data.picture || "assets/svg/default-profile.svg";
               }
-              tdActions.appendChild(toggleBtn);
+              btnAvatar.src = picture;
+              if (profileAvatar) profileAvatar.src = picture;
+              if (profileName) profileName.textContent = displayName;
+            } catch (error) {
+              console.error("Error fetching profile data:", error);
+              btnAvatar.src = "assets/svg/default-profile.svg";
+              if (profileAvatar)
+                profileAvatar.src = "assets/svg/default-profile.svg";
+              if (profileName) profileName.textContent = pubkey;
+            }
+          }
 
-              // Remove button
-              const removeBtn = document.createElement("button");
-              removeBtn.textContent = "Remove";
-              removeBtn.className = "btn btn-danger btn-sm me-2";
-              removeBtn.onclick = async () => {
-                await fetch("/remove/" + torrent.infoHash, {
-                  method: "DELETE",
+          async function login() {
+            try {
+              const pubkey = await window.nostrClient.login();
+              if (pubkey) {
+                localStorage.setItem("userPubKey", pubkey);
+                await updateProfileUI(pubkey);
+              }
+            } catch (error) {
+              console.error("Login failed:", error);
+              alert("Login failed. Please try again.");
+            }
+          }
+
+          function logout() {
+            window.nostrClient.logout();
+            localStorage.removeItem("userPubKey");
+            updateProfileUI(null);
+          }
+
+          async function loadProfileModal() {
+            try {
+              const response = await fetch("components/profile-modal.html");
+              const html = await response.text();
+              document.getElementById("profileModalContainer").innerHTML = html;
+              const closeBtn = document.getElementById("closeProfileModal");
+              const logoutBtn = document.getElementById("profileLogoutBtn");
+              if (closeBtn) {
+                closeBtn.addEventListener("click", () => {
+                  toggleProfileModal(false);
                 });
+              }
+              if (logoutBtn) {
+                logoutBtn.addEventListener("click", () => {
+                  logout();
+                  toggleProfileModal(false);
+                });
+              }
+            } catch (err) {
+              console.error("Error loading profile modal:", err);
+            }
+          }
+
+          function toggleProfileModal(show) {
+            const modal = document.getElementById("profileModal");
+            if (!modal) return;
+            modal.classList.toggle("hidden", !show);
+          }
+
+          // Profile initialization
+          document
+            .getElementById("loginButton")
+            .addEventListener("click", async () => {
+              const userPubKey = localStorage.getItem("userPubKey");
+              if (!userPubKey) {
+                await login();
+                toggleProfileModal(true);
+                await updateProfileUI(localStorage.getItem("userPubKey"));
+              } else {
+                toggleProfileModal(true);
+                await updateProfileUI(userPubKey);
+              }
+            });
+
+          const savedPubKey = localStorage.getItem("userPubKey") || null;
+          if (savedPubKey) {
+            updateProfileUI(savedPubKey);
+          }
+
+          loadProfileModal();
+
+          // Torrent management functions
+          document
+            .getElementById("addTorrentForm")
+            .addEventListener("submit", async (e) => {
+              e.preventDefault();
+              if (!localStorage.getItem("userPubKey")) {
+                alert("Please login to add a torrent.");
+                return;
+              }
+
+              const magnet = document.getElementById("magnet").value;
+              const videoFile = document.getElementById("videoFile").files[0];
+
+              if (magnet && videoFile) {
+                alert(
+                  "Please provide either a magnet link or a video file, not both."
+                );
+                return;
+              }
+
+              if (magnet) {
+                const addButton = document.querySelector(
+                  "#addTorrentForm button[type='submit']"
+                );
+                addButton.disabled = true;
+                try {
+                  const response = await fetch("/add", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ magnet }),
+                  });
+                  if (response.ok) {
+                    const data = await response.json();
+                    console.log("Torrent added:", data);
+                    document.getElementById("magnet").value = "";
+                    fetchTorrents(currentPage);
+                  } else {
+                    const errorData = await response.json();
+                    alert(errorData.error || "Failed to add torrent.");
+                  }
+                } catch (error) {
+                  console.error("Error adding torrent:", error);
+                  alert("An error occurred while adding the torrent.");
+                } finally {
+                  addButton.disabled = false;
+                }
+              } else if (videoFile) {
+                const addButton = document.querySelector(
+                  "#addTorrentForm button[type='submit']"
+                );
+                addButton.disabled = true;
+                try {
+                  const formData = new FormData();
+                  formData.append("video", videoFile);
+                  const response = await fetch("/upload", {
+                    method: "POST",
+                    body: formData,
+                  });
+                  if (response.ok) {
+                    const data = await response.json();
+                    console.log("Video uploaded:", data);
+                    document.getElementById("videoFile").value = "";
+                    fetchTorrents(currentPage);
+                  } else {
+                    const errorData = await response.json();
+                    alert(errorData.error || "Failed to upload video.");
+                  }
+                } catch (error) {
+                  console.error("Error uploading video:", error);
+                  alert("An error occurred while uploading the video.");
+                } finally {
+                  addButton.disabled = false;
+                }
+              } else {
+                alert("Please provide a magnet link or a video file.");
+              }
+            });
+
+          async function fetchTorrents(page) {
+            if (!localStorage.getItem("userPubKey")) return;
+            try {
+              const res = await fetch(`/torrents?page=${page}&limit=${limit}`);
+              if (!res.ok) {
+                throw new Error(`Server error: ${res.status} ${res.statusText}`);
+              }
+              const data = await res.json();
+              if (!data.torrents) {
+                console.error("No torrents found in response:", data);
+                return;
+              }
+              const { torrents, total, page: current } = data;
+              const list = document.getElementById("torrentList");
+              list.innerHTML = "";
+              torrents.forEach((torrent) => {
+                const tr = document.createElement("tr");
+
+                // Name (always required, fallback to "Unknown" if missing)
+                const tdName = document.createElement("td");
+                tdName.textContent = torrent.name || "Unknown";
+                tr.appendChild(tdName);
+
+                // Progress (handle undefined or invalid values)
+                const tdProgress = document.createElement("td");
+                const progress = torrent.progress !== undefined && torrent.progress !== null
+                  ? (torrent.progress * 100).toFixed(2) + "%"
+                  : "N/A";
+                tdProgress.textContent = progress;
+                tr.appendChild(tdProgress);
+
+                // Peers (handle undefined or invalid values)
+                const tdPeers = document.createElement("td");
+                const numPeers = torrent.numPeers !== undefined && torrent.numPeers !== null
+                  ? torrent.numPeers
+                  : "N/A";
+                tdPeers.textContent = numPeers;
+                tr.appendChild(tdPeers);
+
+                // Downloaded (handle undefined or invalid values)
+                const tdDownloaded = document.createElement("td");
+                const downloaded = torrent.downloaded !== undefined && torrent.downloaded !== null
+                  ? formatBytes(torrent.downloaded)
+                  : "N/A";
+                tdDownloaded.textContent = downloaded;
+                tr.appendChild(tdDownloaded);
+
+                // Uploaded (handle undefined or invalid values)
+                const tdUploaded = document.createElement("td");
+                const uploaded = torrent.uploaded !== undefined && torrent.uploaded !== null
+                  ? formatBytes(torrent.uploaded)
+                  : "N/A";
+                tdUploaded.textContent = uploaded;
+                tr.appendChild(tdUploaded);
+
+                // Status (always required, fallback to "Unknown" if missing)
+                const tdStatus = document.createElement("td");
+                const status = torrent.status
+                  ? torrent.status.charAt(0).toUpperCase() + torrent.status.slice(1)
+                  : "Unknown";
+                tdStatus.textContent = status;
+                tr.appendChild(tdStatus);
+
+                // Actions
+                const tdActions = document.createElement("td");
+
+                // Pause/Resume button
+                const toggleBtn = document.createElement("button");
+                toggleBtn.className = "btn btn-warning btn-sm me-2";
+                const statusLower = (torrent.status || "").toLowerCase();
+                if (statusLower === "paused") {
+                  toggleBtn.textContent = "Resume";
+                  toggleBtn.onclick = async () => {
+                    toggleBtn.disabled = true;
+                    const response = await fetch(`/resume/${torrent.infoHash}`, { method: "POST" });
+                    const result = await response.json();
+                    if (!response.ok) {
+                      alert(`Failed to resume: ${result.error} ${result.details || ""}`);
+                    } else {
+                      fetchTorrents(currentPage); // Immediate refresh
+                    }
+                    toggleBtn.disabled = false;
+                  };
+                } else if (statusLower === "active") {
+                  toggleBtn.textContent = "Pause";
+                  toggleBtn.onclick = async () => {
+                    await fetch(`/pause/${torrent.infoHash}`, { method: "POST" });
+                    fetchTorrents(currentPage);
+                  };
+                } else {
+                  toggleBtn.textContent = "Resuming";
+                  toggleBtn.disabled = true;
+                }
+                tdActions.appendChild(toggleBtn);
+
+                // Remove button
+                const removeBtn = document.createElement("button");
+                removeBtn.textContent = "Remove";
+                removeBtn.className = "btn btn-danger btn-sm me-2";
+                removeBtn.onclick = async () => {
+                  await fetch("/remove/" + torrent.infoHash, { method: "DELETE" });
+                  fetchTorrents(currentPage);
+                };
+                tdActions.appendChild(removeBtn);
+
+                // Copy Magnet button
+                const copyMagnetBtn = document.createElement("button");
+                copyMagnetBtn.textContent = "Copy Magnet";
+                copyMagnetBtn.className = "btn btn-secondary btn-sm me-2";
+                copyMagnetBtn.onclick = async () => {
+                  try {
+                    if (torrent.magnet) {
+                      await navigator.clipboard.writeText(torrent.magnet);
+                      alert("Magnet link copied to clipboard!");
+                    } else {
+                      alert("Magnet link not found.");
+                    }
+                  } catch (err) {
+                    console.error("Error copying magnet link:", err);
+                    alert("Failed to copy magnet link.");
+                  }
+                };
+                tdActions.appendChild(copyMagnetBtn);
+
+                // Download button
+                const downloadBtn = document.createElement("button");
+                downloadBtn.textContent = "Download";
+                downloadBtn.className = "btn btn-primary btn-sm";
+                downloadBtn.onclick = () => {
+                  window.location.href = `/download/${torrent.infoHash}`;
+                };
+                tdActions.appendChild(downloadBtn);
+
+                tr.appendChild(tdActions);
+                list.appendChild(tr);
+              });
+              updatePaginationControls(total, current);
+            } catch (error) {
+              console.error("Error fetching torrents:", error);
+            }
+          }
+
+          function updatePaginationControls(total, page) {
+            const totalPages = Math.ceil(total / limit);
+            const pagination = document.createElement("div");
+            pagination.className = "d-flex justify-content-center mt-3";
+
+            // Previous button
+            const prevBtn = document.createElement("button");
+            prevBtn.className = "btn btn-secondary me-2";
+            prevBtn.textContent = "Previous";
+            prevBtn.disabled = page === 1;
+            prevBtn.onclick = () => {
+              if (page > 1) {
+                currentPage = page - 1;
+                fetchTorrents(currentPage);
+              }
+            };
+            pagination.appendChild(prevBtn);
+
+            // Page number buttons
+            for (let i = 1; i <= totalPages; i++) {
+              const pageBtn = document.createElement("button");
+              pageBtn.className =
+                i === page ? "btn btn-primary me-1" : "btn btn-secondary me-1";
+              pageBtn.textContent = i;
+              pageBtn.onclick = () => {
+                currentPage = i;
                 fetchTorrents(currentPage);
               };
-              tdActions.appendChild(removeBtn);
-
-              // Copy Magnet button
-              const copyMagnetBtn = document.createElement("button");
-              copyMagnetBtn.textContent = "Copy Magnet";
-              copyMagnetBtn.className = "btn btn-secondary btn-sm me-2";
-              copyMagnetBtn.onclick = async () => {
-                try {
-                  if (torrent.magnet) {
-                    await navigator.clipboard.writeText(torrent.magnet);
-                    alert("Magnet link copied to clipboard!");
-                  } else {
-                    alert("Magnet link not found.");
-                  }
-                } catch (err) {
-                  console.error("Error copying magnet link:", err);
-                  alert("Failed to copy magnet link.");
-                }
-              };
-              tdActions.appendChild(copyMagnetBtn);
-
-              // New Download button
-              const downloadBtn = document.createElement("button");
-              downloadBtn.textContent = "Download";
-              downloadBtn.className = "btn btn-primary btn-sm";
-              downloadBtn.onclick = () => {
-                window.location.href = `/download/${torrent.infoHash}`;
-              };
-              tdActions.appendChild(downloadBtn);
-
-              tr.appendChild(tdActions);
-              list.appendChild(tr);
-            });
-            updatePaginationControls(total, current);
-          } catch (error) {
-            console.error("Error fetching torrents:", error);
-          }
-        }
-
-        function updatePaginationControls(total, page) {
-          const totalPages = Math.ceil(total / limit);
-          const pagination = document.createElement("div");
-          pagination.className = "d-flex justify-content-center mt-3";
-
-          // Previous button
-          const prevBtn = document.createElement("button");
-          prevBtn.className = "btn btn-secondary me-2";
-          prevBtn.textContent = "Previous";
-          prevBtn.disabled = page === 1;
-          prevBtn.onclick = () => {
-            if (page > 1) {
-              currentPage = page - 1;
-              fetchTorrents(currentPage);
+              pagination.appendChild(pageBtn);
             }
-          };
-          pagination.appendChild(prevBtn);
 
-          // Page number buttons
-          for (let i = 1; i <= totalPages; i++) {
-            const pageBtn = document.createElement("button");
-            pageBtn.className =
-              i === page ? "btn btn-primary me-1" : "btn btn-secondary me-1";
-            pageBtn.textContent = i;
-            pageBtn.onclick = () => {
-              currentPage = i;
-              fetchTorrents(currentPage);
+            // Next button
+            const nextBtn = document.createElement("button");
+            nextBtn.className = "btn btn-secondary";
+            nextBtn.textContent = "Next";
+            nextBtn.disabled = page === totalPages;
+            nextBtn.onclick = () => {
+              if (page < totalPages) {
+                currentPage = page + 1;
+                fetchTorrents(currentPage);
+              }
             };
-            pagination.appendChild(pageBtn);
-          }
+            pagination.appendChild(nextBtn);
 
-          // Next button
-          const nextBtn = document.createElement("button");
-          nextBtn.className = "btn btn-secondary";
-          nextBtn.textContent = "Next";
-          nextBtn.disabled = page === totalPages;
-          nextBtn.onclick = () => {
-            if (page < totalPages) {
-              currentPage = page + 1;
-              fetchTorrents(currentPage);
+            // Insert pagination into the designated container in Active Torrents header
+            const paginationContainer = document.getElementById("paginationContainer");
+            const existingPagination = paginationContainer.querySelector(".d-flex");
+            if (existingPagination) {
+              existingPagination.remove();
             }
-          };
-          pagination.appendChild(nextBtn);
-
-          // Insert pagination into the designated container in Active Torrents header
-          const paginationContainer = document.getElementById(
-            "paginationContainer"
-          );
-          const existingPagination =
-            paginationContainer.querySelector(".d-flex");
-          if (existingPagination) {
-            existingPagination.remove(); // Remove any existing pagination to avoid duplicates
+            paginationContainer.appendChild(pagination);
           }
-          paginationContainer.appendChild(pagination);
-        }
-        async function fetchConfig() {
-          if (!localStorage.getItem("userPubKey")) return;
-          try {
-            const res = await fetch("/config");
-            const config = await res.json();
-            document.getElementById("currentStorage").textContent =
-              "Current storage directory: " + config.storageDir;
-            document.getElementById("storageDir").value = config.storageDir;
-          } catch (error) {
-            console.error("Error fetching config:", error);
-          }
-        }
 
-        document
-          .getElementById("configForm")
-          .addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const storageDir = document.getElementById("storageDir").value;
-            const res = await fetch("/config", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ storageDir }),
+          async function fetchConfig() {
+            if (!localStorage.getItem("userPubKey")) return;
+            try {
+              const res = await fetch("/config");
+              const config = await res.json();
+              document.getElementById("currentStorage").textContent =
+                "Current storage directory: " +
+                config.storageDir +
+                " | Max Connections: " +
+                config.maxConns +
+                " | UTP: " +
+                config.utp;
+              document.getElementById("storageDir").value = config.storageDir;
+              document.getElementById("maxConns").value = config.maxConns;
+              document.getElementById("utp").checked = config.utp;
+            } catch (error) {
+              console.error("Error fetching config:", error);
+            }
+          }
+
+          document
+            .getElementById("configForm")
+            .addEventListener("submit", async (e) => {
+              e.preventDefault();
+              const storageDir = document.getElementById("storageDir").value;
+              const maxConns = parseInt(document.getElementById("maxConns").value, 10);
+              const utp = document.getElementById("utp").checked;
+              const res = await fetch("/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ storageDir, maxConns, utp }),
+              });
+              const result = await res.json();
+              document.getElementById("currentStorage").textContent =
+                "Current storage directory: " +
+                result.config.storageDir +
+                " | Max Connections: " +
+                result.config.maxConns +
+                " | UTP: " +
+                result.config.utp;
+              bootstrap.Modal.getInstance(
+                document.getElementById("settingsModal")
+              ).hide();
             });
-            const result = await res.json();
-            document.getElementById("currentStorage").textContent =
-              "Current storage directory: " + result.storageDir;
-            bootstrap.Modal.getInstance(
-              document.getElementById("settingsModal")
-            ).hide();
-          });
 
-        // Initial fetch and periodic updates
-        fetchTorrents(currentPage);
-        fetchConfig();
-
-        setInterval(() => {
+          // Initial fetch and periodic updates
           fetchTorrents(currentPage);
           fetchConfig();
-        }, 5000);
-      });
-    </script>
-    <!-- Bootstrap Bundle JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+          setInterval(() => {
+            fetchTorrents(currentPage);
+            fetchConfig();
+          }, 5000);
+        });
+      </script>
+      <!-- Bootstrap Bundle JS -->
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>

@@ -1,0 +1,5 @@
+{
+  "storageDir": "C:\\Users\\user\\Documents\\bitvid-seeder",
+  "maxConns": 200,
+  "utp": true
+}

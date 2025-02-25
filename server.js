@@ -13,11 +13,11 @@ import winston from "winston";
 import JSONStream from "JSONStream";
 import { lock, unlock } from "proper-lockfile";
 import os from "os";
-import multer from "multer"; // Added for file uploads
+import multer from "multer"; // For file uploads
 
-// **Logger Setup**
+// Logger Setup
 const logger = winston.createLogger({
-  level: "debug",
+  level: "info", // Changed from "debug" to "info" to reduce logging
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.printf(
@@ -27,34 +27,15 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-// **App and Client Initialization**
-const app = express();
-const port = process.env.PORT || 3000;
-const client = new WebTorrent({ maxWebConns: 200, utp: false });
-client.setMaxListeners(50);
-
+// Global Variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// **Rate Limiting Middleware**
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
-});
-app.use(limiter);
-app.use(express.json());
-
-// **Multer Configuration**
-const upload = multer({ dest: "uploads/" }); // Temporary storage for uploaded files
-
-// **Configuration and Global Variables**
 const CONFIG_FILE = path.join(__dirname, "config.json");
 let config = { storageDir: path.join(__dirname, "downloads") };
-
 const TORRENTS_FILE = path.join(__dirname, "torrents.json");
 let savedTorrents = [];
 
-// **Helper Functions**
+// Helper Functions
 async function pathExists(p) {
   try {
     await fsPromises.access(p);
@@ -72,7 +53,7 @@ function formatBytes(bytes) {
   return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
 }
 
-// **Load Configuration**
+// Load Configuration
 async function loadConfig() {
   try {
     if (!fs.existsSync(CONFIG_FILE)) {
@@ -84,7 +65,11 @@ async function loadConfig() {
         "Documents",
         "bitvid-seeder"
       );
-      const defaultConfig = { storageDir: defaultStorageDir };
+      const defaultConfig = {
+        storageDir: defaultStorageDir,
+        maxConns: 200,
+        utp: false,
+      };
       fs.writeFileSync(
         CONFIG_FILE,
         JSON.stringify(defaultConfig, null, 2),
@@ -94,25 +79,30 @@ async function loadConfig() {
     } else {
       const data = await fsPromises.readFile(CONFIG_FILE, "utf-8");
       config = JSON.parse(data);
-      // If storageDir is empty, set a default based on the user's home directory
+      if (!config.maxConns) config.maxConns = 200;
+      if (config.utp === undefined) config.utp = false;
       if (!config.storageDir || config.storageDir.trim() === "") {
         config.storageDir = path.join(
           os.homedir(),
           "Documents",
           "bitvid-seeder"
         );
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
       } else {
-        config.storageDir = path.resolve(config.storageDir); // Ensure absolute path
+        config.storageDir = path.resolve(config.storageDir);
       }
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
     }
   } catch (err) {
     logger.error("Error reading config file, using default config: " + err);
+    config = {
+      storageDir: path.join(os.homedir(), "Documents", "bitvid-seeder"),
+      maxConns: 200,
+      utp: false,
+    };
   }
 }
-await loadConfig();
 
-// **Load Torrents with Streaming**
+// Load Torrents with Streaming and Migrate Old Entries
 async function loadSavedTorrentsFromFile() {
   if (!fs.existsSync(TORRENTS_FILE)) {
     logger.info("No torrents.json file found. Creating new empty file.");
@@ -122,18 +112,28 @@ async function loadSavedTorrentsFromFile() {
     const stream = fs.createReadStream(TORRENTS_FILE, { encoding: "utf8" });
     const parser = JSONStream.parse("*");
     savedTorrents = [];
-    parser.on("data", (torrent) => savedTorrents.push(torrent));
+    parser.on("data", (torrent) => {
+      // Migrate old 'paused' field to 'state'
+      if (torrent.paused !== undefined) {
+        torrent.state = torrent.paused ? "paused" : "active";
+        delete torrent.paused;
+      }
+      savedTorrents.push(torrent);
+    });
     parser.on("end", () => resolve());
     parser.on("error", (err) => reject(err));
     stream.pipe(parser);
   });
 }
-await loadSavedTorrentsFromFile();
 
-// **Asynchronous Save Torrents with File Locking**
+// Asynchronous Save Torrents with File Locking
 async function saveTorrents() {
   await lock(TORRENTS_FILE);
   try {
+    const uniqueTorrents = Array.from(
+      new Set(savedTorrents.map((t) => t.infoHash))
+    ).map((infoHash) => savedTorrents.find((t) => t.infoHash === infoHash));
+    savedTorrents = uniqueTorrents;
     const stream = JSONStream.stringify("[\n", ",\n", "\n]");
     const fileStream = fs.createWriteStream(TORRENTS_FILE);
     stream.pipe(fileStream);
@@ -151,13 +151,7 @@ async function saveTorrents() {
   }
 }
 
-// **Ensure Storage Directory Exists**
-let STORAGE_DIR = config.storageDir;
-if (!fs.existsSync(STORAGE_DIR)) {
-  fs.mkdirSync(STORAGE_DIR, { recursive: true });
-}
-
-// **Torrent Event Debugging**
+// Torrent Event Debugging (optional, can be removed if not needed)
 function attachTorrentDebugEvents(torrent) {
   torrent.on("wire", (wire, addr) => {
     logger.debug(`Torrent ${torrent.infoHash} connected to peer: ${addr}`);
@@ -170,420 +164,492 @@ function attachTorrentDebugEvents(torrent) {
   });
 }
 
-// **Resume Active Torrents**
-async function resumeActiveTorrents() {
-  logger.info("Resuming active torrents...");
-  for (const torrent of savedTorrents) {
-    if (!torrent.paused) {
-      try {
-        const torrentPath = path.join(STORAGE_DIR, torrent.name);
-        const exists = await pathExists(torrentPath);
-        if (exists) {
-          client.seed(
-            torrentPath,
-            { name: torrent.name },
-            (torrentInstance) => {
-              attachTorrentDebugEvents(torrentInstance);
-              logger.info(
-                `Resumed seeding torrent: ${torrentInstance.infoHash}`
-              );
-            }
-          );
-        } else {
-          client.add(
-            torrent.magnet,
-            { path: STORAGE_DIR },
-            (torrentInstance) => {
-              attachTorrentDebugEvents(torrentInstance);
-              logger.info(
-                `Resumed downloading torrent: ${torrentInstance.infoHash}`
-              );
-            }
-          );
+// Resume Torrents on Startup
+async function resumeActiveTorrents(client, STORAGE_DIR) {
+  logger.info("Starting to resume torrents...");
+  if (savedTorrents.length === 0) {
+    logger.info("No saved torrents found in torrents.json.");
+    return;
+  }
+  for (const torrentData of savedTorrents) {
+    const { magnet, infoHash, name, state } = torrentData;
+    if (magnet) {
+      const torrent = await new Promise((resolve, reject) => {
+        const t = client.add(magnet, { path: STORAGE_DIR }, resolve);
+        t.on("error", reject);
+      });
+      if (state === "paused") {
+        torrent.pause();
+      }
+      attachTorrentDebugEvents(torrent);
+      logger.info(`Torrent ${infoHash} added with state: ${state}`);
+    } else {
+      // Handle seeding existing files
+      const torrentPath = path.join(STORAGE_DIR, name);
+      if (await pathExists(torrentPath)) {
+        const torrent = await new Promise((resolve, reject) => {
+          const t = client.seed(torrentPath, { name }, resolve);
+          t.on("error", reject);
+        });
+        if (state === "paused") {
+          torrent.pause();
         }
-      } catch (err) {
-        logger.error(`Error resuming torrent ${torrent.name}: ${err}`);
+        attachTorrentDebugEvents(torrent);
+        logger.info(`Torrent ${infoHash} seeded with state: ${state}`);
+      } else {
+        logger.warn(`File missing for torrent ${name}, cannot seed.`);
       }
     }
   }
 }
-await resumeActiveTorrents();
 
-// **API Routes**
+// Main Initialization Function
+async function initialize() {
+  // Load configuration first
+  await loadConfig();
 
-// Get configuration
-app.get("/config", async (req, res) => {
-  try {
-    res.json({ storageDir: config.storageDir });
-  } catch (err) {
-    logger.error("Error getting config: " + err);
-    res.status(500).json({ error: "Error reading config" });
+  // Ensure storage directory exists
+  let STORAGE_DIR = config.storageDir;
+  if (!fs.existsSync(STORAGE_DIR)) {
+    fs.mkdirSync(STORAGE_DIR, { recursive: true });
   }
-});
 
-// List torrents with pagination
-app.get("/torrents", (req, res) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const start = (page - 1) * limit;
-    const end = start + limit;
+  // Initialize Express app and WebTorrent client
+  const app = express();
+  const port = process.env.PORT || 3000;
+  const client = new WebTorrent({
+    maxConns: config.maxConns,
+    utp: config.utp,
+    utpOpts: { port: 6881 }, // Specify a different port for UTP
+  });
+  client.setMaxListeners(50);
 
-    const active = client.torrents.map((t) => ({
-      infoHash: t.infoHash,
-      name: t.name,
-      progress: t.progress,
-      numPeers: t.numPeers,
-      downloaded: t.downloaded,
-      uploaded: t.uploaded,
-      paused: false,
-      magnet: t.magnetURI, // Added
-    }));
-    const paused = savedTorrents
-      .filter((s) => s.paused)
-      .map((s) => ({
-        infoHash: s.infoHash,
-        name: s.name,
-        progress: 1,
-        numPeers: 0,
-        downloaded: 0,
-        uploaded: 0,
-        paused: true,
-        magnet: s.magnet, // Added
-      }));
-    const allTorrents = [...active, ...paused];
-    const paginatedTorrents = allTorrents.slice(start, end);
+  // Rate Limiting Middleware
+  const limiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 100,
+  });
+  app.use(limiter);
+  app.use(express.json());
 
-    res.json({
-      torrents: paginatedTorrents,
-      total: allTorrents.length,
-      page,
-      limit,
-    });
-  } catch (err) {
-    logger.error("Error listing torrents: " + err.message);
-    res.status(500).json({
-      torrents: [],
-      total: 0,
-      page: parseInt(req.query.page) || 1,
-      limit: parseInt(req.query.limit) || 10,
-      error: "Error listing torrents",
-      message: err.message,
-    });
-  }
-});
+  // Multer configuration for file uploads
+  const upload = multer({ dest: "uploads/" });
 
-// Download route
-app.get("/download/:infoHash", async (req, res) => {
-  const infoHash = req.params.infoHash;
-  const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
-  if (!savedData) {
-    return res.status(404).json({ error: "Torrent not found" });
-  }
-  const filePath = path.join(STORAGE_DIR, savedData.name);
-  if (!(await pathExists(filePath))) {
-    return res.status(404).json({ error: "File not found" });
-  }
-  res.download(filePath, savedData.name, (err) => {
-    if (err) {
-      logger.error("Error downloading file: " + err);
-      res.status(500).json({ error: "Error downloading file" });
+  // Load saved torrents
+  await loadSavedTorrentsFromFile();
+
+  // API Routes
+
+  // Get configuration
+  app.get("/config", async (req, res) => {
+    try {
+      res.json({
+        storageDir: config.storageDir,
+        maxConns: config.maxConns,
+        utp: config.utp,
+      });
+    } catch (err) {
+      logger.error("Error getting config: " + err);
+      res.status(500).json({ error: "Error reading config" });
     }
   });
-});
 
-// Pause a torrent
-app.post("/pause/:infoHash", async (req, res) => {
-  const infoHash = req.params.infoHash;
-  logger.debug(`Pausing torrent with infoHash: ${infoHash}`); // Added logging
-  // Validate infoHash
-  if (!infoHash || typeof infoHash !== "string") {
-    return res.status(400).json({ error: "Invalid infoHash" });
-  }
-  const torrent = client.get(infoHash);
-  if (!torrent) {
-    return res
-      .status(400)
-      .json({ error: "Torrent not active or already paused" });
-  }
-  try {
-    // Wrap client.remove in a promise to handle both synchronous and asynchronous errors
-    await new Promise((resolve, reject) => {
-      client.remove(infoHash, { destroyStore: false }, (err) => {
-        if (err) reject(err);
-        else resolve();
+  // List torrents with pagination
+  app.get("/torrents", (req, res) => {
+    try {
+      logger.info(`Listing torrents: ${JSON.stringify(savedTorrents)}`);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const start = (page - 1) * limit;
+      const end = start + limit;
+
+      const allTorrents = savedTorrents.map((saved) => {
+        const torrent = client.get(saved.infoHash);
+        if (torrent) {
+          logger.info(
+            `Active torrent ${saved.infoHash}: ${JSON.stringify({
+              progress: torrent.progress,
+              numPeers: torrent.numPeers,
+              downloaded: torrent.downloaded,
+              uploaded: torrent.uploaded,
+              status: saved.state,
+            })}`
+          );
+          return {
+            infoHash: saved.infoHash,
+            name: saved.name,
+            progress: torrent.progress,
+            numPeers: torrent.numPeers,
+            downloaded: torrent.downloaded,
+            uploaded: torrent.uploaded,
+            status: saved.state,
+            magnet: saved.magnet,
+          };
+        } else {
+          logger.info(
+            `Paused torrent ${saved.infoHash}: ${JSON.stringify({
+              progress: 1,
+              numPeers: 0,
+              downloaded: 0,
+              uploaded: 0,
+              status: saved.state,
+            })}`
+          );
+          return {
+            infoHash: saved.infoHash,
+            name: saved.name,
+            progress: 1,
+            numPeers: 0,
+            downloaded: 0,
+            uploaded: 0,
+            status: saved.state,
+            magnet: saved.magnet,
+          };
+        }
       });
+      const paginatedTorrents = allTorrents.slice(start, end);
+      res.json({
+        torrents: paginatedTorrents,
+        total: allTorrents.length,
+        page,
+        limit,
+      });
+    } catch (err) {
+      logger.error("Error listing torrents: " + err.message);
+      res.status(500).json({
+        torrents: [],
+        total: 0,
+        page: parseInt(req.query.page) || 1,
+        limit: parseInt(req.query.limit) || 10,
+        error: "Error listing torrents",
+        message: err.message,
+      });
+    }
+  });
+
+  // Download route
+  app.get("/download/:infoHash", async (req, res) => {
+    const infoHash = req.params.infoHash;
+    const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
+    if (!savedData) {
+      return res.status(404).json({ error: "Torrent not found" });
+    }
+    const filePath = path.join(STORAGE_DIR, savedData.name);
+    if (!(await pathExists(filePath))) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    res.download(filePath, savedData.name, (err) => {
+      if (err) {
+        logger.error("Error downloading file: " + err);
+        res.status(500).json({ error: "Error downloading file" });
+      }
     });
-    const entry = savedTorrents.find((s) => s.infoHash === infoHash);
-    if (entry) entry.paused = true;
-    await saveTorrents(); // Await the save operation
-    res.json({ message: "Torrent paused" });
-  } catch (err) {
-    logger.error("Error pausing torrent: " + err);
-    res.status(500).json({ error: "Error pausing torrent" });
-  }
-});
+  });
 
-// Resume a torrent
-app.post("/resume/:infoHash", async (req, res) => {
-  const infoHash = req.params.infoHash;
-  const entry = savedTorrents.find((s) => s.infoHash === infoHash);
-  if (!entry) {
-    return res.status(400).json({ error: "Torrent not found in saved data" });
-  }
-  entry.paused = false;
-  await saveTorrents(); // Await the save operation
-  const torrentPath = path.join(STORAGE_DIR, entry.name);
-  const exists = await pathExists(torrentPath);
-  try {
-    if (exists) {
-      client.seed(torrentPath, { name: entry.name }, (torrent) => {
-        attachTorrentDebugEvents(torrent);
-        logger.info(`Torrent resumed (seeding from file): ${torrent.infoHash}`);
-        res.json({ message: "Torrent resumed" });
-      });
+  // Pause a torrent
+  app.post("/pause/:infoHash", async (req, res) => {
+    const infoHash = req.params.infoHash;
+    let torrent = client.get(infoHash);
+    // If the torrent isn't currently in the client, try re-adding it from savedTorrents.
+    if (!torrent) {
+      const savedEntry = savedTorrents.find((s) => s.infoHash === infoHash);
+      if (savedEntry && savedEntry.magnet) {
+        try {
+          torrent = await new Promise((resolve, reject) => {
+            const t = client.add(
+              savedEntry.magnet,
+              { path: STORAGE_DIR },
+              resolve
+            );
+            t.on("error", reject);
+          });
+        } catch (err) {
+          logger.error("Error re-adding torrent for pause: " + err.message);
+          return res.status(500).json({ error: "Error pausing torrent" });
+        }
+      }
+    }
+    if (torrent) {
+      torrent.pause();
+      const entry = savedTorrents.find((s) => s.infoHash === infoHash);
+      if (entry) entry.state = "paused";
+      await saveTorrents();
+      res.json({ message: "Torrent paused" });
     } else {
-      client.add(torrent.magnet, { path: STORAGE_DIR }, (torrent) => {
-        attachTorrentDebugEvents(torrent);
-        logger.info(`Torrent resumed (downloading): ${torrent.infoHash}`);
-        res.json({ message: "Torrent resumed" });
+      res.status(400).json({ error: "Torrent not found" });
+    }
+  });
+
+  // Resume a torrent
+  app.post("/resume/:infoHash", async (req, res) => {
+    const infoHash = req.params.infoHash;
+    let torrent = client.get(infoHash);
+    // If the torrent isn't in the client, re-add it from the saved torrents
+    if (!torrent) {
+      const savedEntry = savedTorrents.find((s) => s.infoHash === infoHash);
+      if (savedEntry && savedEntry.magnet) {
+        try {
+          torrent = await new Promise((resolve, reject) => {
+            const t = client.add(
+              savedEntry.magnet,
+              { path: STORAGE_DIR },
+              resolve
+            );
+            t.on("error", reject);
+          });
+        } catch (err) {
+          logger.error("Error re-adding torrent for resume: " + err.message);
+          return res.status(500).json({ error: "Error resuming torrent" });
+        }
+      }
+    }
+    if (torrent) {
+      torrent.resume();
+      const entry = savedTorrents.find((s) => s.infoHash === infoHash);
+      if (entry) entry.state = "active";
+      await saveTorrents();
+      res.json({ message: "Torrent resumed" });
+    } else {
+      res.status(400).json({ error: "Torrent not found" });
+    }
+  });
+
+  // Update configuration with path validation
+  app.post("/config", async (req, res) => {
+    const { storageDir, maxConns, utp } = req.body;
+    try {
+      if (storageDir) {
+        const resolvedPath = path.resolve(storageDir);
+        if (!path.isAbsolute(resolvedPath)) {
+          throw new Error("Path must be absolute");
+        }
+        if (!fs.existsSync(resolvedPath)) {
+          fs.mkdirSync(resolvedPath, { recursive: true });
+        }
+        config.storageDir = resolvedPath;
+        STORAGE_DIR = resolvedPath;
+      }
+      if (maxConns !== undefined) {
+        if (!Number.isInteger(maxConns) || maxConns <= 0) {
+          throw new Error("maxConns must be a positive integer");
+        }
+        config.maxConns = maxConns;
+      }
+      if (utp !== undefined) {
+        if (typeof utp !== "boolean") {
+          throw new Error("utp must be a boolean");
+        }
+        config.utp = utp;
+      }
+      await fsPromises.writeFile(
+        CONFIG_FILE,
+        JSON.stringify(config, null, 2),
+        "utf8"
+      );
+      res.json({ message: "Config updated", config });
+    } catch (err) {
+      logger.error("Error updating config: " + err.message);
+      res
+        .status(500)
+        .json({ error: "Error updating config", message: err.message });
+    }
+  });
+
+  // Add a new torrent
+  app.post("/add", async (req, res) => {
+    const { magnet } = req.body;
+    if (!magnet || typeof magnet !== "string") {
+      return res.status(400).json({ error: "No valid magnet link provided" });
+    }
+    if (!magnet.startsWith("magnet:?")) {
+      return res.status(400).json({ error: "Invalid magnet link format" });
+    }
+    if (savedTorrents.some((t) => t.magnet === magnet)) {
+      return res.status(409).json({ error: "Torrent already added." });
+    }
+    try {
+      const torrent = await new Promise((resolve, reject) => {
+        const t = client.add(magnet, { path: STORAGE_DIR }, resolve);
+        t.on("error", reject);
       });
-    }
-  } catch (err) {
-    logger.error("Error resuming torrent: " + err);
-    res.status(500).json({ error: "Error resuming torrent" });
-  }
-});
-
-// Update configuration with path validation
-app.post("/config", async (req, res) => {
-  const { storageDir } = req.body;
-  if (!storageDir || typeof storageDir !== "string") {
-    return res.status(400).json({ error: "Invalid storageDir provided" });
-  }
-  try {
-    const resolvedPath = path.resolve(storageDir);
-    if (!path.isAbsolute(resolvedPath)) {
-      throw new Error("Path must be absolute");
-    }
-    if (!fs.existsSync(resolvedPath)) {
-      fs.mkdirSync(resolvedPath, { recursive: true });
-    }
-    STORAGE_DIR = resolvedPath;
-    config.storageDir = resolvedPath;
-    await fsPromises.writeFile(
-      CONFIG_FILE,
-      JSON.stringify({ storageDir: resolvedPath }, null, 2)
-    );
-    res.json({ message: "Config updated", storageDir: resolvedPath });
-  } catch (err) {
-    logger.error("Error updating config: " + err.message);
-    res.status(500).json({ error: "Error updating config" });
-  }
-});
-
-// Add a new torrent
-app.post("/add", (req, res) => {
-  const { magnet } = req.body;
-  if (!magnet || typeof magnet !== "string") {
-    return res.status(400).json({ error: "No valid magnet link provided" });
-  }
-  if (!magnet.startsWith("magnet:?")) {
-    return res.status(400).json({ error: "Invalid magnet link format" });
-  }
-  if (savedTorrents.some((t) => t.magnet === magnet)) {
-    logger.info("Attempted to add duplicate torrent.");
-    return res.status(409).json({ error: "Torrent already added." });
-  }
-  try {
-    client.add(magnet, { path: STORAGE_DIR }, (torrent) => {
       attachTorrentDebugEvents(torrent);
-      logger.info(`Torrent added: ${torrent.infoHash}`);
       const torrentData = {
         magnet,
         infoHash: torrent.infoHash,
         name: torrent.name,
-        paused: false,
+        state: "active",
       };
       savedTorrents.push(torrentData);
-      saveTorrents(); // Call saveTorrents
+      await saveTorrents();
       res.json(torrentData);
-    });
-  } catch (err) {
-    logger.error("Error adding torrent: " + err);
-    res.status(500).json({ error: "Error adding torrent" });
-  }
-});
-
-// Upload and seed a video file
-app.post("/upload", upload.single("video"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No video file provided" });
-  }
-
-  try {
-    const tempFilePath = req.file.path; // Temporary file path (e.g., uploads/...)
-    const fileName = req.file.originalname;
-    const destPath = path.join(STORAGE_DIR, fileName);
-
-    // Ensure the destination directory exists
-    if (!fs.existsSync(STORAGE_DIR)) {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+    } catch (err) {
+      logger.error(`Error adding torrent: ${err.message}`);
+      res
+        .status(500)
+        .json({ error: "Error adding torrent", details: err.message });
     }
-
-    // Copy the file to STORAGE_DIR (works across file systems)
-    await fsPromises.copyFile(tempFilePath, destPath);
-
-    // Delete the temporary file
-    await fsPromises.unlink(tempFilePath);
-
-    // Wait for the file to be accessible
-    let attempts = 0;
-    const maxAttempts = 5;
-    while (attempts < maxAttempts) {
-      try {
-        await fsPromises.access(destPath, fs.constants.R_OK);
-        break; // File is accessible, exit the loop
-      } catch (err) {
-        if (err.code === "EBUSY") {
-          attempts++;
-          logger.info(
-            `File ${destPath} is busy, retrying (${attempts}/${maxAttempts})...`
-          );
-          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
-        } else {
-          throw err; // Throw other errors (e.g., permissions)
-        }
-      }
-    }
-    if (attempts === maxAttempts) {
-      throw new Error(
-        `File ${destPath} remained locked after ${maxAttempts} attempts`
-      );
-    }
-
-    // Seed the file with WebTorrent
-    client.seed(destPath, { name: fileName }, (torrent) => {
-      attachTorrentDebugEvents(torrent);
-      logger.info(`Torrent added from file upload: ${torrent.infoHash}`);
-
-      // Generate magnet link and torrent data
-      const magnet = torrent.magnetURI;
-      const torrentData = {
-        magnet,
-        infoHash: torrent.infoHash,
-        name: fileName,
-        paused: false,
-        dateAdded: new Date().toISOString(),
-        size: torrent.length,
-      };
-
-      savedTorrents.push(torrentData);
-      saveTorrents(); // Call saveTorrents
-      res.json(torrentData);
-    });
-  } catch (err) {
-    logger.error("Error uploading file: " + err.message);
-    res
-      .status(500)
-      .json({ error: "Error uploading file", message: err.message });
-  }
-});
-
-// Remove a torrent
-app.delete("/remove/:infoHash", (req, res) => {
-  const infoHash = req.params.infoHash;
-  if (!infoHash || typeof infoHash !== "string") {
-    return res.status(400).json({ error: "Invalid infoHash" });
-  }
-  const torrent = client.get(infoHash);
-  const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
-  const torrentName =
-    (torrent && torrent.name) || (savedData && savedData.name);
-  if (!torrentName) {
-    return res.status(400).json({ error: "Torrent name not found" });
-  }
-  try {
-    client.remove(infoHash, { destroyStore: true }, async (err) => {
-      if (err) {
-        logger.error("Error removing torrent: " + err);
-        return res.status(500).json({ error: "Error removing torrent" });
-      }
-      savedTorrents = savedTorrents.filter((t) => t.infoHash !== infoHash);
-      await saveTorrents(); // Await the save operation
-      const torrentPath = path.join(STORAGE_DIR, torrentName);
-      if (await pathExists(torrentPath)) {
-        try {
-          await fsPromises.rm(torrentPath, { recursive: true, force: true });
-        } catch (rmErr) {
-          logger.error("Error removing torrent files: " + rmErr);
-        }
-      }
-      logger.info(`Torrent removed: ${infoHash}`);
-      res.json({ message: "Torrent removed" });
-    });
-  } catch (err) {
-    logger.error("Error processing removal: " + err);
-    res.status(500).json({ error: "Error processing removal" });
-  }
-});
-
-// **Serve Static Files**
-app.use(express.static("public"));
-
-// **Resource Usage Monitoring**
-setInterval(() => {
-  const cpuUsage = os.loadavg()[0]; // 1-minute load average
-  const freeMem = os.freemem();
-  const totalMem = os.totalmem();
-  const memUsage = ((totalMem - freeMem) / totalMem) * 100;
-  logger.info(
-    `CPU Load: ${cpuUsage.toFixed(2)}%, Memory Usage: ${memUsage.toFixed(2)}%`
-  );
-
-  const mem = process.memoryUsage();
-  logger.info(
-    `Memory: RSS=${formatBytes(mem.rss)}, Heap=${formatBytes(
-      mem.heapUsed
-    )}/${formatBytes(mem.heapTotal)}`
-  );
-  logger.info(
-    `Active torrents: ${client.torrents.length}, Paused torrents: ${
-      savedTorrents.filter((t) => t.paused).length
-    }`
-  );
-}, 60000); // Log every minute
-
-// **Start Server Function**
-function startServer() {
-  const server = app.listen(port, () => {
-    logger.info(`Server running on http://localhost:${port}`);
   });
 
-  // Graceful shutdown
-  function shutdown() {
-    logger.info("Shutting down server...");
-    server.close(() => {
-      logger.info("HTTP server closed.");
-      client.destroy((err) => {
-        if (err) {
-          logger.error("Error destroying WebTorrent client: " + err);
-        } else {
-          logger.info("WebTorrent client destroyed.");
+  // Upload and seed a video file
+  app.post("/upload", upload.single("video"), async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No video file provided" });
+    }
+    try {
+      const tempFilePath = req.file.path;
+      const fileName = req.file.originalname;
+      const destPath = path.join(STORAGE_DIR, fileName);
+      if (!fs.existsSync(STORAGE_DIR)) {
+        fs.mkdirSync(STORAGE_DIR, { recursive: true });
+      }
+      await fsPromises.copyFile(tempFilePath, destPath);
+      await fsPromises.unlink(tempFilePath);
+      let attempts = 0;
+      const maxAttempts = 5;
+      while (attempts < maxAttempts) {
+        try {
+          await fsPromises.access(destPath, fs.constants.R_OK);
+          break;
+        } catch (err) {
+          if (err.code === "EBUSY") {
+            attempts++;
+            logger.info(
+              `File ${destPath} is busy, retrying (${attempts}/${maxAttempts})...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          } else {
+            throw err;
+          }
         }
-        process.exit(0);
+      }
+      if (attempts === maxAttempts) {
+        throw new Error(
+          `File ${destPath} remained locked after ${maxAttempts} attempts`
+        );
+      }
+      client.seed(destPath, { name: fileName }, (torrent) => {
+        attachTorrentDebugEvents(torrent);
+        const torrentData = {
+          magnet: torrent.magnetURI,
+          infoHash: torrent.infoHash,
+          name: fileName,
+          state: "active",
+          dateAdded: new Date().toISOString(),
+          size: torrent.length,
+        };
+        savedTorrents.push(torrentData);
+        saveTorrents();
+        res.json(torrentData);
       });
+    } catch (err) {
+      logger.error("Error uploading file: " + err.message);
+      res
+        .status(500)
+        .json({ error: "Error uploading file", message: err.message });
+    }
+  });
+
+  // Remove a torrent
+  app.delete("/remove/:infoHash", (req, res) => {
+    const infoHash = req.params.infoHash;
+    if (!infoHash || typeof infoHash !== "string") {
+      return res.status(400).json({ error: "Invalid infoHash" });
+    }
+    const torrent = client.get(infoHash);
+    const savedData = savedTorrents.find((t) => t.infoHash === infoHash);
+    const torrentName =
+      (torrent && torrent.name) || (savedData && savedData.name);
+    if (!torrentName) {
+      return res.status(400).json({ error: "Torrent name not found" });
+    }
+    try {
+      client.remove(infoHash, { destroyStore: true }, async (err) => {
+        if (err) {
+          logger.error("Error removing torrent: " + err);
+          return res.status(500).json({ error: "Error removing torrent" });
+        }
+        savedTorrents = savedTorrents.filter((t) => t.infoHash !== infoHash);
+        await saveTorrents();
+        const torrentPath = path.join(STORAGE_DIR, torrentName);
+        if (await pathExists(torrentPath)) {
+          try {
+            await fsPromises.rm(torrentPath, { recursive: true, force: true });
+          } catch (rmErr) {
+            logger.error("Error removing torrent files: " + rmErr);
+          }
+        }
+        res.json({ message: "Torrent removed" });
+      });
+    } catch (err) {
+      logger.error("Error processing removal: " + err);
+      res.status(500).json({ error: "Error processing removal" });
+    }
+  });
+
+  // Serve static files from the "public" folder
+  app.use(express.static("public"));
+
+  // Resource Usage Monitoring
+  setInterval(() => {
+    const cpuUsage = os.loadavg()[0];
+    const freeMem = os.freemem();
+    const totalMem = os.totalmem();
+    const memUsage = ((totalMem - freeMem) / totalMem) * 100;
+    logger.info(
+      `CPU Load: ${cpuUsage.toFixed(2)}%, Memory Usage: ${memUsage.toFixed(2)}%`
+    );
+    const mem = process.memoryUsage();
+    logger.info(
+      `Memory: RSS=${formatBytes(mem.rss)}, Heap=${formatBytes(
+        mem.heapUsed
+      )}/${formatBytes(mem.heapTotal)}`
+    );
+    logger.info(
+      `Active torrents: ${client.torrents.length}, Paused torrents: ${
+        savedTorrents.filter((t) => t.state === "paused").length
+      }`
+    );
+  }, 60000);
+
+  // Function to launch the HTTP server
+  function launchServer() {
+    const server = app.listen(port, async () => {
+      logger.info(`Server running on http://localhost:${port}`);
+      await resumeActiveTorrents(client, STORAGE_DIR);
     });
+
+    // Graceful shutdown
+    function shutdown() {
+      logger.info("Shutting down server...");
+      server.close(() => {
+        logger.info("HTTP server closed.");
+        client.destroy((err) => {
+          if (err) {
+            logger.error("Error destroying WebTorrent client: " + err);
+          } else {
+            logger.info("WebTorrent client destroyed.");
+          }
+          process.exit(0);
+        });
+      });
+    }
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+
+    return port;
   }
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
 
-  return port; // Return the port immediately (it's assigned synchronously)
+  return launchServer();
 }
 
-// **Conditionally Start Server**
+// Exported startServer function for external usage
+async function startServer() {
+  return initialize();
+}
+
+// Conditionally start the server if this module is the entry point
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  startServer(); // Start server directly if run as `node server.js`
+  startServer();
 }
 
-export { startServer }; // Export for Electron or other modules
+export { startServer };
